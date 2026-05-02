@@ -24,7 +24,6 @@
 #include "patches/game_matchmaking.h"
 
 #include <wums.h>
-
 #include <coreinit/dynload.h>
 #include <coreinit/mcp.h>
 
@@ -67,29 +66,34 @@ WUMS_USE_WUT_DEVOPTAB();
 #include "sysconfig.h"
 #include "lang.h"
 
-//thanks @Gary#4139 :p
-static void write_string(uint32_t addr, const char *str) {
+// thanks @Gary#4139 :p
+static void write_string(uint32_t addr, const char *str)
+{
     int len = strlen(str) + 1;
     int remaining = len % 4;
     int num = len - remaining;
 
-    for (int i = 0; i < (num / 4); i++) {
-        Mocha_IOSUKernelWrite32(addr + i * 4, *(uint32_t * )(str + i * 4));
+    for (int i = 0; i < (num / 4); i++)
+    {
+        Mocha_IOSUKernelWrite32(addr + i * 4, *(uint32_t *)(str + i * 4));
     }
 
-    if (remaining > 0) {
+    if (remaining > 0)
+    {
         uint8_t buf[4];
-        Mocha_IOSUKernelRead32(addr + num, (uint32_t * ) & buf);
+        Mocha_IOSUKernelRead32(addr + num, (uint32_t *)&buf);
 
-        for (int i = 0; i < remaining; i++) {
+        for (int i = 0; i < remaining; i++)
+        {
             buf[i] = *(str + num + i);
         }
 
-        Mocha_IOSUKernelWrite32(addr + num, *(uint32_t * ) & buf);
+        Mocha_IOSUKernelWrite32(addr + num, *(uint32_t *)&buf);
     }
 }
 
-static bool is555(MCPSystemVersion version) {
+static bool is555(MCPSystemVersion version)
+{
     return (version.major == 5) && (version.minor == 5) && (version.patch >= 5);
 }
 
@@ -107,17 +111,22 @@ static const char *get_pretendo_message(inkay_language language) {
     return get_config_strings(language).using_pretendo_network.data();
 }
 
-static void Inkay_SetPluginRunning() {
+static void Inkay_SetPluginRunning()
+{
     Config::plugin_is_loaded = true;
 }
 
-static InkayStatus Inkay_GetStatus() {
+static InkayStatus Inkay_GetStatus()
+{
     if (!Config::initialized)
         return InkayStatus::Uninitialized;
 
-    if (Config::connect_to_network) {
+    if (Config::connect_to_network)
+    {
         return InkayStatus::Pretendo;
-    } else {
+    }
+    else
+    {
         return InkayStatus::Nintendo;
     }
 }
@@ -134,16 +143,21 @@ static void Inkay_Initialize(bool apply_patches, bool show_startup_toast, inkay_
     }
 
     // if using pretendo then (try to) apply the ssl patches
-    if (apply_patches) {
+    if (apply_patches)
+    {
         Config::connect_to_network = true;
 
-        if (is555(get_console_os_version())) {
+        if (is555(get_console_os_version()))
+        {
             Mocha_IOSUKernelWrite32(0xE1019F78, 0xE3A00001); // mov r0, #1
-        } else {
+        }
+        else
+        {
             Mocha_IOSUKernelWrite32(0xE1019E84, 0xE3A00001); // mov r0, #1
         }
 
-        for (const auto &patch: url_patches) {
+        for (const auto &patch : url_patches)
+        {
             write_string(patch.address, patch.url);
         }
 
@@ -156,7 +170,9 @@ static void Inkay_Initialize(bool apply_patches, bool show_startup_toast, inkay_
             ShowNotification(get_pretendo_message(language));
         }
         Config::initialized = true;
-    } else {
+    }
+    else
+    {
         DEBUG_FUNCTION_LINE_VERBOSE("Pretendo URL and NoSSL patches skipped.");
 
         if(Config::show_startup_toast) {
@@ -166,38 +182,49 @@ static void Inkay_Initialize(bool apply_patches, bool show_startup_toast, inkay_
         return;
     }
 
-    if (FunctionPatcher_InitLibrary() == FUNCTION_PATCHER_RESULT_SUCCESS) {
+    if (FunctionPatcher_InitLibrary() == FUNCTION_PATCHER_RESULT_SUCCESS)
+    {
         patchDNS();
         patchEshop();
         patchOlvApplet();
         patchAccountSettings();
         install_matchmaking_patches();
-    } else {
+    }
+    else
+    {
         DEBUG_FUNCTION_LINE("FunctionPatcher_InitLibrary failed");
     }
 }
 
-WUMS_INITIALIZE() {
+WUMS_INITIALIZE()
+{
     WHBLogCafeInit();
     WHBLogUdpInit();
 
-    if (const auto res = Mocha_InitLibrary(); res != MOCHA_RESULT_SUCCESS) {
+    if (const auto res = Mocha_InitLibrary(); res != MOCHA_RESULT_SUCCESS)
+    {
         DEBUG_FUNCTION_LINE("Mocha init failed with code %d!", res);
         return;
     }
 
-    if (NotificationModule_InitLibrary() != NOTIFICATION_MODULE_RESULT_SUCCESS) {
+    Mocha_MountFS("storage_mlc", NULL, "/vol/storage_mlc01");
+
+    if (NotificationModule_InitLibrary() != NOTIFICATION_MODULE_RESULT_SUCCESS)
+    {
         DEBUG_FUNCTION_LINE("NotificationModule_InitLibrary failed");
     }
 }
 
-WUMS_DEINITIALIZE() {
+WUMS_DEINITIALIZE()
+{
     unpatchDNS();
     unpatchEshop();
     unpatchOlvApplet();
     unpatchAccountSettings();
+    remove_aist_patches();
     remove_matchmaking_patches();
 
+    Mocha_UnmountFS("storage_mlc");
     Mocha_DeInitLibrary();
     NotificationModule_DeInitLibrary();
     FunctionPatcher_DeInitLibrary();
@@ -206,37 +233,46 @@ WUMS_DEINITIALIZE() {
     WHBLogUdpDeinit();
 }
 
-WUMS_APPLICATION_STARTS() {
+WUMS_APPLICATION_STARTS()
+{
     DEBUG_FUNCTION_LINE_VERBOSE("Inkay " INKAY_VERSION " starting up...\n");
 
     // Reset plugin loaded flag
     Config::plugin_is_loaded = false;
 }
 
-WUMS_ALL_APPLICATION_STARTS_DONE() {
+WUMS_ALL_APPLICATION_STARTS_DONE()
+{
     // we need to do the patches here because otherwise the Config::connect_to_network flag might be set yet
+    init_olive_token();
     setup_olv_libs();
     peertopeer_patch();
     matchmaking_notify_titleswitch();
     hotpatchAccountSettings();
 
-    if (Config::initialized && !Config::plugin_is_loaded) {
+    if (Config::initialized && !Config::plugin_is_loaded)
+    {
         DEBUG_FUNCTION_LINE("Inkay is running but the plugin got unloaded");
-        if (!Config::block_initialize) {
+        if (!Config::block_initialize)
+        {
             ShowNotification("Inkay module is still running. Please restart the console");
         }
         Config::shown_warning = true;
-    } else if (!Config::initialized && !Config::shown_warning) {
+    }
+    else if (!Config::initialized && !Config::shown_warning)
+    {
         DEBUG_FUNCTION_LINE("Inkay module not initialized");
         ShowNotification("Inkay module was not initialized. Ensure you have the Inkay plugin loaded");
         Config::shown_warning = true;
     }
-    if (!Config::initialized) {
+    if (!Config::initialized)
+    {
         Config::block_initialize = true;
     }
 }
 
-WUMS_APPLICATION_ENDS() {
+WUMS_APPLICATION_ENDS()
+{
 }
 
 WUMS_EXPORT_FUNCTION(Inkay_Initialize);
