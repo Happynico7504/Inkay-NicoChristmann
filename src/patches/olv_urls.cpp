@@ -209,7 +209,6 @@ static void base64_encode(const unsigned char *input, size_t len, char *output)
 }
 
 static char cached_slot_base64[SERVICETOKEN_MAX_SIZE];
-static int cached_slot = -1;
 static char cached_code_serial[21];
 static bool cachedMCP = false;
 
@@ -275,28 +274,24 @@ static void obfuscate_string(char *str, size_t len)
 void init_olive_token()
 {
     int slotNo = nn::act::GetSlotNo();
-    if (slotNo == cached_slot)
-    {
-        DEBUG_FUNCTION_LINE("Slot number is the same than last! %i", slotNo);
-        return;
-    }
-    else if (slotNo == 0)
-    {
-        DEBUG_FUNCTION_LINE("Unloaded account! or Unexistant!");
-        return;
-    }
 
-    DEBUG_FUNCTION_LINE("New slot number is %i", slotNo);
+    if (!nn::act::IsNetworkAccount())
+    {
+        DEBUG_FUNCTION_LINE("account at slot no %i is not linked to nn!", slotNo);
+        return;
+    }
 
     unsigned int pid = nn::act::GetPrincipalId();
+    
     if (pid == 0)
     {
         DEBUG_FUNCTION_LINE("PID at slot no %i is invalid!", slotNo);
         ShowNotification("Could not get your account PID for Roséverse.");
-        cached_slot = -1;
         cached_slot_base64[0] = '\0';
         return;
     }
+
+    DEBUG_FUNCTION_LINE("New slot number is %i", slotNo);
 
     initMCP();
 
@@ -305,7 +300,6 @@ void init_olive_token()
     {
         DEBUG_FUNCTION_LINE("Failed to create olive folder");
         ShowNotification("Failed to create folder to store Roséverse auth data.");
-        cached_slot = -1;
         cached_slot_base64[0] = '\0';
         return;
     }
@@ -323,7 +317,6 @@ void init_olive_token()
     {
         DEBUG_FUNCTION_LINE("File path overflow");
         ShowNotification("Internal path error for Roséverse.");
-        cached_slot = -1;
         cached_slot_base64[0] = '\0';
         return;
     }
@@ -340,7 +333,6 @@ void init_olive_token()
             DEBUG_FUNCTION_LINE("Failed to read token file");
             ShowNotification("Failed to read access key for Roséverse.");
             fclose(in);
-            cached_slot = -1;
             cached_slot_base64[0] = '\0';
             return;
         }
@@ -360,7 +352,6 @@ void init_olive_token()
         {
             DEBUG_FUNCTION_LINE("Generated empty password");
             ShowNotification("Failed to generate account key for Roséverse.");
-            cached_slot = -1;
             cached_slot_base64[0] = '\0';
             return;
         }
@@ -371,7 +362,6 @@ void init_olive_token()
         {
             DEBUG_FUNCTION_LINE("Failed to create token file");
             ShowNotification("Failed to save access key for Roséverse.");
-            cached_slot = -1;
             cached_slot_base64[0] = '\0';
             return;
         }
@@ -381,7 +371,6 @@ void init_olive_token()
             DEBUG_FUNCTION_LINE("Failed writing token file");
             ShowNotification("Failed to write access key for Roséverse.");
             fclose(out);
-            cached_slot = -1;
             cached_slot_base64[0] = '\0';
             return;
         }
@@ -425,12 +414,9 @@ void init_olive_token()
     {
         DEBUG_FUNCTION_LINE("Invalid base64 token data");
         ShowNotification("Could not generate auth header for Roséverse.");
-        cached_slot = -1;
         cached_slot_base64[0] = '\0';
         return;
     }
-
-    cached_slot = slotNo;
 
     DEBUG_FUNCTION_LINE("Token initialized, Base64 length: %zu", strlen(cached_slot_base64));
 }
