@@ -102,10 +102,6 @@ void new_rpl_loaded(OSDynLoad_Module module, void *ctx, OSDynLoad_NotifyReason r
 #define MIIVERSE_TID_U 0x000500301001610A
 #define MIIVERSE_TID_E 0x000500301001620A
 
-#define TVII_TID_J 0x000500301001300A
-#define TVII_TID_U 0x000500301001310A
-#define TVII_TID_E 0x000500301001320A
-
 static bool isRunningApplet()
 {
     uint64_t tid = OSGetTitleID();
@@ -137,7 +133,6 @@ static bool doesAppletNeedOlivePatch()
 }
 
 extern "C" uint32_t nnactGetCountry(char *country) asm("GetCountry__Q2_2nn3actFPc");
-extern "C" void nnactGetBirthday(uint16_t *year, uint8_t *month, uint8_t *day) asm("GetBirthday__Q2_2nn3actFPUsPUcT2");
 extern "C" uint8_t nnactGetGender() asm("GetGender__Q2_2nn3actFv");
 extern "C" uint8_t nnactGetMiiImageUrlEx(char outUrl[257], int slot) asm("GetMiiImageUrlEx__Q2_2nn3actFPcUc");
 
@@ -275,23 +270,21 @@ void init_olive_token()
 {
     int slotNo = nn::act::GetSlotNo();
 
-    if (!nn::act::IsNetworkAccount())
+    if (slotNo == 0)
     {
-        DEBUG_FUNCTION_LINE("account at slot no %i is not linked to nn!", slotNo);
-        return;
-    }
-
-    unsigned int pid = nn::act::GetPrincipalId();
-    
-    if (pid == 0)
-    {
-        DEBUG_FUNCTION_LINE("PID at slot no %i is invalid!", slotNo);
-        ShowNotification("Could not get your account PID for Roséverse.");
-        cached_slot_base64[0] = '\0';
+        DEBUG_FUNCTION_LINE("Unloaded account! or Unexistant!");
         return;
     }
 
     DEBUG_FUNCTION_LINE("New slot number is %i", slotNo);
+
+    unsigned int pid = nn::act::GetPrincipalId();
+    if (pid == 0)
+    {
+        DEBUG_FUNCTION_LINE("PID at slot no %i is invalid!", slotNo);
+        cached_slot_base64[0] = '\0';
+        return;
+    }
 
     initMCP();
 
@@ -387,7 +380,7 @@ void init_olive_token()
     uint8_t gender = nnactGetGender();
 
     // Do after country and gender.
-    nnactGetBirthday(&y, &m, &d);
+    nn::act::GetBirthday(&y, &m, &d);
 
     char miiImageUrl[257];
     nnactGetMiiImageUrlEx(miiImageUrl, slotNo);

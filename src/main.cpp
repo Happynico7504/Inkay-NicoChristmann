@@ -38,7 +38,7 @@
 
 #include "ca_pem.h"
 
-#define INKAY_VERSION "v3.0.0"
+#define INKAY_VERSION "v3.0.0-2"
 
 /**
     Mandatory plugin information.
@@ -244,8 +244,8 @@ WUMS_APPLICATION_STARTS()
 WUMS_ALL_APPLICATION_STARTS_DONE()
 {
     // we need to do the patches here because otherwise the Config::connect_to_network flag might be set yet
-    init_olive_token();
     setup_olv_libs();
+    init_olive_token();
     peertopeer_patch();
     matchmaking_notify_titleswitch();
     hotpatchAccountSettings();
