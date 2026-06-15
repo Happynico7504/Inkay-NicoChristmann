@@ -36,7 +36,9 @@ static const URL_Patch url_patches[] = {
         {0xE229DE0C, "n.app.pretendo.cc"},
         //nim-boss .bss
         {0xE24B8A24, "https://nppl.app.pretendo.cc/p01/policylist/1/1/UNK"},
-        {0xE31930D4, "https://netcup-server.nicochristmann.net:6666"}
+        {0xE31930D4, "https://netcup-server.nicochristmann.net:6666/v1/api/"},
+        {0xE3193100, "X-Nintendo-Device-Cert"},
+
 
 };
 
