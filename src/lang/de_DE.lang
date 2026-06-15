@@ -1,6 +1,7 @@
 .plugin_name="Inkay (Roséverse/Nico Christmann)"
 ,.network_category="Netzwerkauswahl"
 ,.connect_to_network_setting="Verbinde zum Pretendo Network"
+,.show_startup_toast_setting="Startbenachrichtigung anzeigen"
 ,.other_category="Andere Einstellungen"
 ,.reset_wwp_setting="Wara Wara Plaza (Roséverse) zurücksetzen"
 ,.press_a_action="Drücke A"

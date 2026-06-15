@@ -1,6 +1,7 @@
 .plugin_name="Inkay (Roséverse)"
 ,.network_category="Netwerkselectie"
 ,.connect_to_network_setting="Verbind met het Pretendo-Netwerk"
+,.show_startup_toast_setting="Startmelding weergeven"
 ,.other_category="Overige instellingen"
 ,.reset_wwp_setting="Reset het WaraWara Plaza (Roséverse)"
 ,.press_a_action="Druk A"

@@ -1,6 +1,7 @@
 .plugin_name="Inkay (Roséverse)"
 ,.network_category="Sélection du réseau"
 ,.connect_to_network_setting="Connexion au Pretendo Network"
+,.show_startup_toast_setting="Afficher la notification de démarrage"
 ,.other_category="Autres paramètres"
 ,.reset_wwp_setting="Réinitialiser la place WaraWara (Roséverse)"
 ,.press_a_action="Appuyez sur A"

@@ -1,6 +1,7 @@
 .plugin_name="Inkay (Roséverse/Nico Christmann)"
 ,.network_category="ネットワークの選択"
 ,.connect_to_network_setting="Pretendoネットワークに接続する"
+,.show_startup_toast_setting="起動トースト通知を表示"
 ,.other_category="その他の設定"
 ,.reset_wwp_setting="わらわら広場をリセット(Roséverse)"
 ,.press_a_action="Ａボタンを押そう"
