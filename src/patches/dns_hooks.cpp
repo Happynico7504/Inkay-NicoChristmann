@@ -30,8 +30,6 @@ constexpr std::pair<const char *, const char *> dns_replacements[] = {
         // NNCS servers
         { "nncs1.app.nintendowifi.net", "nncs1.app." NETWORK_BASEURL },
         { "nncs2.app.nintendowifi.net", "nncs2.app." NETWORK_BASEURL },
-        // Route Pretendo account server through our account relay
-        { "account.pretendo.cc", "netcup-server.nicochristmann.net" },
 };
 
 static const char * replace_dns_name(const char *dns_name) {
