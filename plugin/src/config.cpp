@@ -263,7 +263,7 @@ void Config::Init() {
     WUPSConfigAPIStatus cres;
 
     // Init the config api
-    WUPSConfigAPIOptionsV1 configOptions = { .name = "Inkay (Roséverse)" };
+    WUPSConfigAPIOptionsV1 configOptions = { .name = "Inkay (Nico Christmann)" };
     cres = WUPSConfigAPI_Init(configOptions, ConfigMenuOpenedCallback, ConfigMenuClosedCallback);
     if (cres != WUPSCONFIG_API_RESULT_SUCCESS) return (void)report_error(cres);
 

@@ -45,9 +45,9 @@
     If not set correctly, the loader will refuse to use the plugin.
 **/
 WUMS_MODULE_EXPORT_NAME("inkay");
-WUMS_MODULE_DESCRIPTION("Pretendo Network Patcher (Uses Roséverse)");
+WUMS_MODULE_DESCRIPTION("Pretendo Network Patcher");
 WUMS_MODULE_VERSION(INKAY_VERSION);
-WUMS_MODULE_AUTHOR("Pretendo contributors / Project Rosé Team");
+WUMS_MODULE_AUTHOR("Pretendo contributors");
 WUMS_MODULE_LICENSE("GPLv3");
 
 WUMS_DEPENDS_ON(homebrew_functionpatcher);
@@ -221,7 +221,6 @@ WUMS_DEINITIALIZE()
     unpatchEshop();
     unpatchOlvApplet();
     unpatchAccountSettings();
-    remove_aist_patches();
     remove_matchmaking_patches();
 
     Mocha_UnmountFS("storage_mlc");
@@ -245,7 +244,6 @@ WUMS_ALL_APPLICATION_STARTS_DONE()
 {
     // we need to do the patches here because otherwise the Config::connect_to_network flag might be set yet
     setup_olv_libs();
-    init_olive_token();
     peertopeer_patch();
     matchmaking_notify_titleswitch();
     hotpatchAccountSettings();
