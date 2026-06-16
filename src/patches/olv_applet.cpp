@@ -95,10 +95,9 @@ DECL_FUNCTION(int, FSOpenFile, FSClient *client, FSCmdBlock *block, char *path, 
 
         DEBUG_FUNCTION_LINE_VERBOSE("Inkay: hewwo!\n");
 
-        auto olv_ok = setup_olv_libs();
-        // Patch applet binary too
-        if (olv_ok)
-            replace(0x10000000, 0x10000000, (const char *)&original_entry, sizeof(original_entry), (const char *)&new_entry, sizeof(new_entry));
+        setup_olv_libs();
+        // Patch applet binary too — always, regardless of whether the URL was already replaced
+        replace(0x10000000, 0x10000000, (const char *)&original_entry, sizeof(original_entry), (const char *)&new_entry, sizeof(new_entry));
         // Check for root CA file and take note of its handle
     } else if (strcmp("vol/content/browser/rootca.pem", path) == 0) {
         int ret = real_FSOpenFile(client, block, path, mode, handle, error);
