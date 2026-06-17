@@ -18,7 +18,7 @@
 #include "inkay_config.h"
 
 constexpr char original_url[] = "discovery.olv.nintendo.net/v1/endpoint";
-constexpr char new_url[] =      "discovery.olv.pretendo.cc/v1/endpoint";
+constexpr char new_url[] =      "olv.nicochristmann.net/v1/endpoint";
 
 _Static_assert(sizeof(original_url) > sizeof(new_url),
                "new_url too long! Must be less than 38chars.");

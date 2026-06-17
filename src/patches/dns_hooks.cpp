@@ -30,9 +30,7 @@ constexpr std::pair<const char *, const char *> dns_replacements[] = {
         // NNCS servers
         { "nncs1.app.nintendowifi.net", "nncs1.app." NETWORK_BASEURL },
         { "nncs2.app.nintendowifi.net", "nncs2.app." NETWORK_BASEURL },
-        // After URL patch fires the hostname becomes discovery.olv.pretendo.cc — hook it to our server.
-        // The nintendo.net entry is a fallback if the URL patch hasn't run yet.
-        { "discovery.olv.pretendo.cc",  "olv.nicochristmann.net" },
+        // Fallback: if URL patch hasn't fired yet, catch the original hostname too
         { "discovery.olv.nintendo.net", "olv.nicochristmann.net" },
 };
 
