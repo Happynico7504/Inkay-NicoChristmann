@@ -59,7 +59,9 @@ void new_rpl_loaded(OSDynLoad_Module module, void* ctx, OSDynLoad_NotifyReason r
     if (reason != OS_DYNLOAD_NOTIFY_LOADED) return;
     if (!rpl->name || !path_is_olv(rpl->name)) return;
 
-    replace(rpl->dataAddr, rpl->dataSize, original_url, sizeof(original_url), new_url, sizeof(new_url));
+    // Search both .data and .rodata (readAddr) — the URL constant may land in either
+    if (!replace(rpl->dataAddr, rpl->dataSize, original_url, sizeof(original_url), new_url, sizeof(new_url)))
+        replace(rpl->readAddr, rpl->readSize, original_url, sizeof(original_url), new_url, sizeof(new_url));
 }
 
 bool setup_olv_libs() {
