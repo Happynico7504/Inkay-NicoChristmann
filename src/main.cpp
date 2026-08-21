@@ -38,7 +38,7 @@
 
 #include "ca_pem.h"
 
-#define INKAY_VERSION "v3.0.0-13"
+#define INKAY_VERSION "v3.0.0-14"
 
 /**
     Mandatory plugin information.
@@ -62,6 +62,7 @@ WUMS_USE_WUT_DEVOPTAB();
 #include "patches/dns_hooks.h"
 #include "patches/eshop_applet.h"
 #include "patches/olv_applet.h"
+#include "patches/olv_calls.h"
 #include "patches/game_peertopeer.h"
 #include "sysconfig.h"
 #include "lang.h"
@@ -187,6 +188,7 @@ static void Inkay_Initialize(bool apply_patches, bool show_startup_toast, inkay_
         patchDNS();
         patchEshop();
         patchOlvApplet();
+        patchOlvCalls();
         patchAccountSettings();
         install_matchmaking_patches();
     }
@@ -220,6 +222,7 @@ WUMS_DEINITIALIZE()
     unpatchDNS();
     unpatchEshop();
     unpatchOlvApplet();
+    unpatchOlvCalls();
     unpatchAccountSettings();
     remove_matchmaking_patches();
 
