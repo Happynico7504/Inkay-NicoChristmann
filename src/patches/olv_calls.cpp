@@ -72,8 +72,84 @@ DECL_FUNCTION(uint32_t, DownloadCommunityDataList, void *pOutData, uint32_t *pOu
     return result;
 }
 
+// Catch-all sweep: log every other "action" nn::olv call (not the trivial
+// Set*/Get*-field accessors or constructors) so we can see exactly what WSC
+// calls between the community-list match and StartPortalApp, since none of
+// the three functions above fire for the current failure.
+
+DECL_FUNCTION(uint32_t, Initialize, const void *param) {
+    uint32_t result = real_Initialize(param);
+    DEBUG_FUNCTION_LINE("Inkay/OLV: Initialize(param=%p) -> result=0x%08X", param, result);
+    return result;
+}
+
+DECL_FUNCTION(uint32_t, Cancel) {
+    uint32_t result = real_Cancel();
+    DEBUG_FUNCTION_LINE("Inkay/OLV: Cancel() -> 0x%08X", result);
+    return result;
+}
+
+DECL_FUNCTION(uint32_t, Finalize) {
+    uint32_t result = real_Finalize();
+    DEBUG_FUNCTION_LINE("Inkay/OLV: Finalize() -> 0x%08X", result);
+    return result;
+}
+
+DECL_FUNCTION(uint32_t, SwitchToOnlineMode) {
+    uint32_t result = real_SwitchToOnlineMode();
+    DEBUG_FUNCTION_LINE("Inkay/OLV: SwitchToOnlineMode() -> 0x%08X", result);
+    return result;
+}
+
+DECL_FUNCTION(uint32_t, DownloadPostDataList, void *pOutTopic, void *pOutPost, uint32_t *pOutCount, uint32_t maxCount, const void *param) {
+    uint32_t result = real_DownloadPostDataList(pOutTopic, pOutPost, pOutCount, maxCount, param);
+    DEBUG_FUNCTION_LINE("Inkay/OLV: DownloadPostDataList(maxCount=%u) -> result=0x%08X outCount=%u",
+                         maxCount, result, pOutCount ? *pOutCount : 0xFFFFFFFF);
+    return result;
+}
+
+DECL_FUNCTION(uint32_t, DownloadCommentDataList, void *pOutComment, uint32_t *pOutCount, uint32_t maxCount, const void *param) {
+    uint32_t result = real_DownloadCommentDataList(pOutComment, pOutCount, maxCount, param);
+    DEBUG_FUNCTION_LINE("Inkay/OLV: DownloadCommentDataList(maxCount=%u) -> result=0x%08X outCount=%u",
+                         maxCount, result, pOutCount ? *pOutCount : 0xFFFFFFFF);
+    return result;
+}
+
+DECL_FUNCTION(uint32_t, UploadPostData, void *pOutUploadedPostData, const void *param) {
+    uint32_t result = real_UploadPostData(pOutUploadedPostData, param);
+    DEBUG_FUNCTION_LINE("Inkay/OLV: UploadPostData(param=%p) -> result=0x%08X", param, result);
+    return result;
+}
+
+DECL_FUNCTION(uint32_t, UploadPostDataByPostApp, const void *param) {
+    uint32_t result = real_UploadPostDataByPostApp(param);
+    DEBUG_FUNCTION_LINE("Inkay/OLV: UploadPostDataByPostApp(param=%p) -> result=0x%08X", param, result);
+    return result;
+}
+
+DECL_FUNCTION(uint32_t, UploadEmpathyToPostData, const void *param) {
+    uint32_t result = real_UploadEmpathyToPostData(param);
+    DEBUG_FUNCTION_LINE("Inkay/OLV: UploadEmpathyToPostData(param=%p) -> result=0x%08X", param, result);
+    return result;
+}
+
+DECL_FUNCTION(uint32_t, GetResultWithUploadedPostDataByPostApp, void *pOutUploadedPostData) {
+    uint32_t result = real_GetResultWithUploadedPostDataByPostApp(pOutUploadedPostData);
+    DEBUG_FUNCTION_LINE("Inkay/OLV: GetResultWithUploadedPostDataByPostApp() -> result=0x%08X", result);
+    return result;
+}
+
+// int32_t GetErrorCode(const nn::Result &result) - this is very likely what
+// decodes a raw Result into the "errorCode:1152006"-style number WSC prints,
+// so logging both the raw input and the decoded output ties them together.
+DECL_FUNCTION(int32_t, GetErrorCode, const uint32_t *result) {
+    int32_t code = real_GetErrorCode(result);
+    DEBUG_FUNCTION_LINE("Inkay/OLV: GetErrorCode(raw=0x%08X) -> %d", result ? *result : 0, code);
+    return code;
+}
+
 void patchOlvCalls() {
-    olv_call_patches.reserve(3);
+    olv_call_patches.reserve(14);
 
     auto add_patch = [](function_replacement_data_t repl, const char *name) {
         PatchedFunctionHandle handle = 0;
@@ -86,6 +162,17 @@ void patchOlvCalls() {
     add_patch(REPLACE_FUNCTION_FOR_PROCESS(StartPortalApp, LIBRARY_NN_OLV, StartPortalApp, FP_TARGET_PROCESS_GAME), "StartPortalApp");
     add_patch(REPLACE_FUNCTION_FOR_PROCESS(PreloadPostApp, LIBRARY_NN_OLV, PreloadPostApp, FP_TARGET_PROCESS_GAME), "PreloadPostApp");
     add_patch(REPLACE_FUNCTION_FOR_PROCESS(DownloadCommunityDataList, LIBRARY_NN_OLV, DownloadCommunityDataList, FP_TARGET_PROCESS_GAME), "DownloadCommunityDataList");
+    add_patch(REPLACE_FUNCTION_FOR_PROCESS(Initialize, LIBRARY_NN_OLV, Initialize, FP_TARGET_PROCESS_GAME), "Initialize");
+    add_patch(REPLACE_FUNCTION_FOR_PROCESS(Cancel, LIBRARY_NN_OLV, Cancel, FP_TARGET_PROCESS_GAME), "Cancel");
+    add_patch(REPLACE_FUNCTION_FOR_PROCESS(Finalize, LIBRARY_NN_OLV, Finalize, FP_TARGET_PROCESS_GAME), "Finalize");
+    add_patch(REPLACE_FUNCTION_FOR_PROCESS(SwitchToOnlineMode, LIBRARY_NN_OLV, SwitchToOnlineMode, FP_TARGET_PROCESS_GAME), "SwitchToOnlineMode");
+    add_patch(REPLACE_FUNCTION_FOR_PROCESS(DownloadPostDataList, LIBRARY_NN_OLV, DownloadPostDataList, FP_TARGET_PROCESS_GAME), "DownloadPostDataList");
+    add_patch(REPLACE_FUNCTION_FOR_PROCESS(DownloadCommentDataList, LIBRARY_NN_OLV, DownloadCommentDataList, FP_TARGET_PROCESS_GAME), "DownloadCommentDataList");
+    add_patch(REPLACE_FUNCTION_FOR_PROCESS(UploadPostData, LIBRARY_NN_OLV, UploadPostData, FP_TARGET_PROCESS_GAME), "UploadPostData");
+    add_patch(REPLACE_FUNCTION_FOR_PROCESS(UploadPostDataByPostApp, LIBRARY_NN_OLV, UploadPostDataByPostApp, FP_TARGET_PROCESS_GAME), "UploadPostDataByPostApp");
+    add_patch(REPLACE_FUNCTION_FOR_PROCESS(UploadEmpathyToPostData, LIBRARY_NN_OLV, UploadEmpathyToPostData, FP_TARGET_PROCESS_GAME), "UploadEmpathyToPostData");
+    add_patch(REPLACE_FUNCTION_FOR_PROCESS(GetResultWithUploadedPostDataByPostApp, LIBRARY_NN_OLV, GetResultWithUploadedPostDataByPostApp, FP_TARGET_PROCESS_GAME), "GetResultWithUploadedPostDataByPostApp");
+    add_patch(REPLACE_FUNCTION_FOR_PROCESS(GetErrorCode, LIBRARY_NN_OLV, GetErrorCode, FP_TARGET_PROCESS_GAME), "GetErrorCode");
 }
 
 void unpatchOlvCalls() {
