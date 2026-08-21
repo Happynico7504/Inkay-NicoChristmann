@@ -42,8 +42,38 @@ DECL_FUNCTION(uint32_t, StartPortalApp, const void *param) {
     return result;
 }
 
+// nn::Result PreloadPostApp();
+// Runs before StartPortalApp to warm up the post applet - a documented
+// ResultPostAppPreloadFailed exists in the SDK for exactly this call.
+DECL_FUNCTION(uint32_t, PreloadPostApp) {
+    uint32_t result = real_PreloadPostApp();
+    DEBUG_FUNCTION_LINE("Inkay/OLV: PreloadPostApp() -> result=0x%08X", result);
+    return result;
+}
+
+// nn::Result DownloadCommunityDataList(DownloadedCommunityData *pOutData, uint32_t *pOutCount,
+//                                       uint32_t maxCount, const DownloadCommunityDataListParam *param);
+// This is how the club-info screen looks up a community by its numeric ID
+// before it can hand that ID to StartPortalApp - if our stored community_id
+// doesn't match what the game actually asks for, this fails first.
+DECL_FUNCTION(uint32_t, DownloadCommunityDataList, void *pOutData, uint32_t *pOutCount, uint32_t maxCount, const void *param) {
+    uint32_t result = real_DownloadCommunityDataList(pOutData, pOutCount, maxCount, param);
+    uint32_t outCount = pOutCount ? *pOutCount : 0xFFFFFFFF;
+
+    if (param) {
+        const uint32_t *words = (const uint32_t *) param;
+        DEBUG_FUNCTION_LINE("Inkay/OLV: DownloadCommunityDataList(maxCount=%u, param=[%08X %08X %08X %08X]) -> result=0x%08X outCount=%u",
+                             maxCount, words[0], words[1], words[2], words[3], result, outCount);
+    } else {
+        DEBUG_FUNCTION_LINE("Inkay/OLV: DownloadCommunityDataList(maxCount=%u, param=NULL) -> result=0x%08X outCount=%u",
+                             maxCount, result, outCount);
+    }
+
+    return result;
+}
+
 void patchOlvCalls() {
-    olv_call_patches.reserve(1);
+    olv_call_patches.reserve(3);
 
     auto add_patch = [](function_replacement_data_t repl, const char *name) {
         PatchedFunctionHandle handle = 0;
@@ -54,6 +84,8 @@ void patchOlvCalls() {
     };
 
     add_patch(REPLACE_FUNCTION_FOR_PROCESS(StartPortalApp, LIBRARY_NN_OLV, StartPortalApp, FP_TARGET_PROCESS_GAME), "StartPortalApp");
+    add_patch(REPLACE_FUNCTION_FOR_PROCESS(PreloadPostApp, LIBRARY_NN_OLV, PreloadPostApp, FP_TARGET_PROCESS_GAME), "PreloadPostApp");
+    add_patch(REPLACE_FUNCTION_FOR_PROCESS(DownloadCommunityDataList, LIBRARY_NN_OLV, DownloadCommunityDataList, FP_TARGET_PROCESS_GAME), "DownloadCommunityDataList");
 }
 
 void unpatchOlvCalls() {
