@@ -32,6 +32,9 @@ constexpr std::pair<const char *, const char *> dns_replacements[] = {
         { "nncs2.app.nintendowifi.net", "nncs2.app." NETWORK_BASEURL },
         // Fallback: if URL patch hasn't fired yet, catch the original hostname too
         { "discovery.olv.nintendo.net", "olv.nicochristmann.net" },
+        // api.olv.nintendo.net is used directly by nn_olv for community/post calls
+        // (GET .../v1/communities/*/posts, POST .../v1/posts) - not just discovery.
+        { "api.olv.nintendo.net", "olv.nicochristmann.net" },
 };
 
 static const char * replace_dns_name(const char *dns_name) {
