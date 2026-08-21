@@ -16,6 +16,7 @@
 */
 
 #include <netdb.h>
+#include <cerrno>
 
 #include "config.h"
 #include "utils/logger.h"
@@ -49,11 +50,25 @@ static const char * replace_dns_name(const char *dns_name) {
 }
 
 DECL_FUNCTION(struct hostent *, gethostbyname, const char *dns_name) {
-    return real_gethostbyname(replace_dns_name(dns_name));
+    const char *resolved = replace_dns_name(dns_name);
+    struct hostent *result = real_gethostbyname(resolved);
+
+    if (result) {
+        DEBUG_FUNCTION_LINE("Inkay/DNS: gethostbyname(%s -> %s) -> OK", dns_name, resolved);
+    } else {
+        DEBUG_FUNCTION_LINE("Inkay/DNS: gethostbyname(%s -> %s) -> FAILED h_errno=%d", dns_name, resolved, h_errno);
+    }
+
+    return result;
 }
 
 DECL_FUNCTION(int, getaddrinfo, const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res) {
-    return real_getaddrinfo(replace_dns_name(node), service, hints, res);
+    const char *resolved = replace_dns_name(node);
+    int result = real_getaddrinfo(resolved, service, hints, res);
+
+    DEBUG_FUNCTION_LINE("Inkay/DNS: getaddrinfo(%s -> %s, service=%s) -> %d", node, resolved, service ? service : "(null)", result);
+
+    return result;
 }
 
 void patchDNS() {
