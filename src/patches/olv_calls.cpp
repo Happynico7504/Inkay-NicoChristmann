@@ -89,10 +89,9 @@ DECL_FUNCTION(uint32_t, Cancel) {
     return result;
 }
 
-DECL_FUNCTION(uint32_t, Finalize) {
-    uint32_t result = real_Finalize();
-    DEBUG_FUNCTION_LINE("Inkay/OLV: Finalize() -> 0x%08X", result);
-    return result;
+DECL_FUNCTION(void, Finalize) {
+    real_Finalize();
+    DEBUG_FUNCTION_LINE("Inkay/OLV: Finalize() called");
 }
 
 DECL_FUNCTION(uint32_t, SwitchToOnlineMode) {
@@ -151,10 +150,14 @@ DECL_FUNCTION(int32_t, GetErrorCode, const uint32_t *result) {
 void patchOlvCalls() {
     olv_call_patches.reserve(14);
 
-    auto add_patch = [](function_replacement_data_t repl, const char *name) {
+    DEBUG_FUNCTION_LINE("Inkay/OLV: patchOlvCalls() starting");
+
+    int failCount = 0;
+    auto add_patch = [&failCount](function_replacement_data_t repl, const char *name) {
         PatchedFunctionHandle handle = 0;
         if (FunctionPatcher_AddFunctionPatch(&repl, &handle, nullptr) != FUNCTION_PATCHER_RESULT_SUCCESS) {
             DEBUG_FUNCTION_LINE("Inkay/OLV: Failed to patch %s!", name);
+            failCount++;
         }
         olv_call_patches.push_back(handle);
     };
@@ -173,6 +176,9 @@ void patchOlvCalls() {
     add_patch(REPLACE_FUNCTION_FOR_PROCESS(UploadEmpathyToPostData, LIBRARY_NN_OLV, UploadEmpathyToPostData, FP_TARGET_PROCESS_GAME), "UploadEmpathyToPostData");
     add_patch(REPLACE_FUNCTION_FOR_PROCESS(GetResultWithUploadedPostDataByPostApp, LIBRARY_NN_OLV, GetResultWithUploadedPostDataByPostApp, FP_TARGET_PROCESS_GAME), "GetResultWithUploadedPostDataByPostApp");
     add_patch(REPLACE_FUNCTION_FOR_PROCESS(GetErrorCode, LIBRARY_NN_OLV, GetErrorCode, FP_TARGET_PROCESS_GAME), "GetErrorCode");
+
+    DEBUG_FUNCTION_LINE("Inkay/OLV: patchOlvCalls() done - %d/%d patches installed successfully",
+                         (int) olv_call_patches.size() - failCount, (int) olv_call_patches.size());
 }
 
 void unpatchOlvCalls() {
