@@ -29,7 +29,7 @@
     Mandatory plugin information.
     If not set correctly, the loader will refuse to use the plugin.
 **/
-WUPS_PLUGIN_NAME("Inkay (Nico Christmann)");
+WUPS_PLUGIN_NAME("Inkay (Revivetendo)");
 WUPS_PLUGIN_DESCRIPTION("Pretendo Network Patcher");
 WUPS_PLUGIN_VERSION(INKAY_VERSION);
 WUPS_PLUGIN_AUTHOR("Pretendo contributors");
