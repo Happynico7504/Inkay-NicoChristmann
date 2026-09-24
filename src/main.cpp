@@ -38,7 +38,7 @@
 
 #include "ca_pem.h"
 
-#define INKAY_VERSION "v3.0.0-19"
+#define INKAY_VERSION "v3.0.0-25"
 
 /**
     Mandatory plugin information.
