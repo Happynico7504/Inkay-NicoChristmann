@@ -32,7 +32,12 @@
 #include "ca_pem.h" // generated at buildtime
 
 constexpr char wave_original[] = "https://ninja.wup.shop.nintendo.net/ninja/wood_index.html?";
-constexpr char wave_new[] =      "http://samurai.wup.shop." NETWORK_BASEURL "/ninja/wood_index.html?";
+// Revivetendo: the eShop applet opens our "Revivetendo TV" video page instead of
+// Pretendo's "eShop is not available" one. Must be nicoch.net: replace() copies
+// wave_new over wave_original in place, so it can't be longer (57 vs 58 bytes;
+// .nicochristmann.net would be 65).
+constexpr char wave_new[] =      "http://samurai.wup.shop.nicoch.net/ninja/wood_index.html?";
+static_assert(sizeof(wave_new) <= sizeof(wave_original), "eShop URL must fit over the original");
 
 struct eshop_allowlist {
     char scheme[16];
@@ -50,7 +55,7 @@ constexpr struct eshop_allowlist original_entry = {
 
 constexpr struct eshop_allowlist new_entry = {
     .scheme = "http",
-    .domain = "samurai.wup.shop." NETWORK_BASEURL,
+    .domain = "samurai.wup.shop.nicoch.net",
     .path = "",
     .flags = {1, 1, 1, 1, 0},
 };
