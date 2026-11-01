@@ -38,7 +38,7 @@
 
 #include "ca_pem.h"
 
-#define INKAY_VERSION "v3.0.0-26"
+#define INKAY_VERSION "v3.0.0-27"
 
 /**
     Mandatory plugin information.
@@ -59,6 +59,7 @@ WUMS_USE_WUT_DEVOPTAB();
 #include <mocha/mocha.h>
 #include <function_patcher/function_patching.h>
 #include "patches/account_settings.h"
+#include "patches/wii_karaoke.h"
 #include "patches/dns_hooks.h"
 #include "patches/eshop_applet.h"
 #include "patches/olv_applet.h"
@@ -247,6 +248,7 @@ WUMS_ALL_APPLICATION_STARTS_DONE()
     peertopeer_patch();
     matchmaking_notify_titleswitch();
     hotpatchAccountSettings();
+    hotpatchWiiKaraoke();
 
     if (Config::initialized && !Config::plugin_is_loaded)
     {
