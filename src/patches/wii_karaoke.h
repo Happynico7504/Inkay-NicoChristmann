@@ -1,3 +1,4 @@
 #pragma once
 
-bool hotpatchWiiKaraoke();
+void patchWiiKaraoke();
+void unpatchWiiKaraoke();

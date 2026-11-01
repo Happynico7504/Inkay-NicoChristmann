@@ -1,31 +1,58 @@
 #include "wii_karaoke.h"
 #include "config.h"
 #include "utils/logger.h"
-#include "utils/replace_mem.h"
 
-#include <coreinit/title.h>
+#include <cstdio>
+#include <cstring>
+#include <vector>
+#include <function_patcher/function_patching.h>
 
 // Wii Karaoke U by JOYSOUND asks its own server, not a Nintendo Network service, so the IOSU
 // URL patches don't cover it. Plain http: the game only sets up its pinned NSSL context for https.
+// Rewritten as the game hands it to libcurl, instead of in .rodata: the game builds every request
+// URL from this prefix, and this way nothing depends on when the title's memory can be changed.
 constexpr char karaoke_original[] = "https://ssl.wahp.wah.wup.app.nintendo.net/";
 constexpr char karaoke_new[] =      "http://wahp.nicoch.net/";
-static_assert(sizeof(karaoke_new) <= sizeof(karaoke_original), "Karaoke URL must fit over the original");
 
-static bool isWiiKaraokeTitle() {
-    const uint64_t tid = OSGetTitleID();
-    return tid == 0x0005000010100D00 || tid == 0x000500001010B800 || tid == 0x0005000010149600;
+constexpr int CURLOPT_URL_OPTION = 10002;
+
+std::vector<PatchedFunctionHandle> karaoke_patches;
+
+// curl_easy_setopt is variadic, but on PowerPC its one pointer/long argument still arrives in r5.
+DECL_FUNCTION(int, curl_easy_setopt_karaoke, void *curl, int option, void *param) {
+    if (option == CURLOPT_URL_OPTION && param && Config::connect_to_network) {
+        const auto *url = (const char *) param;
+        if (strncmp(url, karaoke_original, sizeof(karaoke_original) - 1) == 0) {
+            // libcurl copies the string, so a stack buffer is fine (and safe across threads).
+            char rewritten[2048];
+            int len = snprintf(rewritten, sizeof(rewritten), "%s%s", karaoke_new, url + sizeof(karaoke_original) - 1);
+            if (len > 0 && (size_t) len < sizeof(rewritten)) {
+                return real_curl_easy_setopt_karaoke(curl, option, rewritten);
+            }
+            DEBUG_FUNCTION_LINE("Inkay: Wii Karaoke URL too long");
+        }
+    }
+
+    return real_curl_easy_setopt_karaoke(curl, option, param);
 }
 
-bool hotpatchWiiKaraoke() {
-    if (!Config::connect_to_network || !isWiiKaraokeTitle()) {
-        return false;
-    }
+void patchWiiKaraoke() {
+    karaoke_patches.reserve(1);
 
-    // Only the EU build is known to use this URL; the others just won't match.
-    if (!replace(0x10000000, 0x100000, karaoke_original, sizeof(karaoke_original), karaoke_new, sizeof(karaoke_new))) {
-        DEBUG_FUNCTION_LINE("Inkay: Wii Karaoke URL not found");
-        return false;
-    }
+    auto add_patch = [](function_replacement_data_t repl, const char *name) {
+        PatchedFunctionHandle handle = 0;
+        if (FunctionPatcher_AddFunctionPatch(&repl, &handle, nullptr) != FUNCTION_PATCHER_RESULT_SUCCESS) {
+            DEBUG_FUNCTION_LINE("Inkay/Karaoke: Failed to patch %s!", name);
+        }
+        karaoke_patches.push_back(handle);
+    };
 
-    return true;
+    add_patch(REPLACE_FUNCTION_FOR_PROCESS(curl_easy_setopt_karaoke, LIBRARY_NLIBCURL, curl_easy_setopt, FP_TARGET_PROCESS_GAME), "curl_easy_setopt");
+}
+
+void unpatchWiiKaraoke() {
+    for (auto handle: karaoke_patches) {
+        FunctionPatcher_RemoveFunctionPatch(handle);
+    }
+    karaoke_patches.clear();
 }
