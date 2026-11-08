@@ -21,14 +21,24 @@
 #include <coreinit/title.h>
 #include <mocha/mocha.h>
 
-#include "tvii_rootca_der.h" // generated at buildtime from data/tvii_rootca.der
+#include "tvii_rootca_der.h"          // generated at buildtime from data/tvii_rootca.der (our own CA)
+#include "godaddy_class2_root_der.h"  // generated at buildtime from data/godaddy_class2_root.der (stock)
+#include "godaddy_g2_root_der.h"      // generated at buildtime from data/godaddy_g2_root.der (stock)
 
 // Native Cafe OS paths, not through a Mocha_MountFS devoptab: content partitions are
 // mounted read-only even to their own owning title, so writing here needs a FSClient
 // that Mocha_UnlockFSClient() has granted full permissions to.
-constexpr const char *tvii_rootca_paths[] = {
-        "/vol/storage_mlc01/sys/title/00050030/1001320a/content/rootca/Go_Daddy_Class_2_Certification_Authority.der",
-        "/vol/storage_mlc01/sys/title/00050030/1001320a/content/rootca/Go_Daddy_Root_Certificate_Authority_-_G2.der",
+struct tvii_rootca_file {
+    const char *path;
+    const uint8_t *stock_der;
+    size_t stock_der_size;
+};
+
+constexpr tvii_rootca_file tvii_rootca_files[] = {
+        {"/vol/storage_mlc01/sys/title/00050030/1001320a/content/rootca/Go_Daddy_Class_2_Certification_Authority.der",
+         godaddy_class2_root_der, godaddy_class2_root_der_size},
+        {"/vol/storage_mlc01/sys/title/00050030/1001320a/content/rootca/Go_Daddy_Root_Certificate_Authority_-_G2.der",
+         godaddy_g2_root_der, godaddy_g2_root_der_size},
 };
 
 constexpr uint64_t TVII_TITLE_ID = 0x000500301001320AULL;
@@ -66,19 +76,22 @@ void tviiApplyRootCAOverlay() {
         return;
     }
 
-    for (const auto *path: tvii_rootca_paths) {
+    for (const auto &file: tvii_rootca_files) {
+        const uint8_t *data = Config::tvii_use_custom_ca ? tvii_rootca_der : file.stock_der;
+        size_t size = Config::tvii_use_custom_ca ? tvii_rootca_der_size : file.stock_der_size;
+
         FSFileHandle handle;
-        auto open_res = FSOpenFile(&client, &block, path, "w", &handle, FS_ERROR_FLAG_ALL);
+        auto open_res = FSOpenFile(&client, &block, file.path, "w", &handle, FS_ERROR_FLAG_ALL);
         if (open_res != FS_STATUS_OK) {
-            DEBUG_FUNCTION_LINE("Inkay/TVii: failed to open %s (%d)", path, open_res);
+            DEBUG_FUNCTION_LINE("Inkay/TVii: failed to open %s (%d)", file.path, open_res);
             continue;
         }
 
-        auto write_res = FSWriteFile(&client, &block, (uint8_t *) tvii_rootca_der, 1, tvii_rootca_der_size, handle, 0, FS_ERROR_FLAG_ALL);
-        if (write_res != (FSStatus) tvii_rootca_der_size) {
-            DEBUG_FUNCTION_LINE("Inkay/TVii: failed to write %s (%d)", path, write_res);
+        auto write_res = FSWriteFile(&client, &block, (uint8_t *) data, 1, size, handle, 0, FS_ERROR_FLAG_ALL);
+        if (write_res != (FSStatus) size) {
+            DEBUG_FUNCTION_LINE("Inkay/TVii: failed to write %s (%d)", file.path, write_res);
         } else {
-            DEBUG_FUNCTION_LINE_VERBOSE("Inkay/TVii: overwrote %s", path);
+            DEBUG_FUNCTION_LINE_VERBOSE("Inkay/TVii: overwrote %s with %s CA", file.path, Config::tvii_use_custom_ca ? "custom" : "stock");
         }
 
         FSCloseFile(&client, &block, handle, FS_ERROR_FLAG_ALL);

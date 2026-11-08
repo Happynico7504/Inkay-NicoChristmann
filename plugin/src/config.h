@@ -18,6 +18,8 @@ public:
 
     static bool show_startup_toast;
 
+    static bool tvii_use_custom_ca;
+
     // private stuff
     static bool need_relaunch;
 

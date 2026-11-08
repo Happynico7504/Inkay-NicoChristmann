@@ -41,6 +41,7 @@ static config_strings strings;
 
 bool Config::connect_to_network = true;
 bool Config::show_startup_toast = true;
+bool Config::tvii_use_custom_ca = false;
 bool Config::need_relaunch = false;
 bool Config::unregister_task_item_pressed = false;
 bool Config::is_wiiu_menu = false;
@@ -89,6 +90,15 @@ static void show_startup_toast_changed(ConfigItemBoolean* item, bool new_value) 
 
     WUPSStorageError res;
     res = WUPSStorageAPI::Store<bool>("show_startup_toast", Config::show_startup_toast);
+    if (res != WUPS_STORAGE_ERROR_SUCCESS) return report_storage_error(res);
+}
+
+static void tvii_use_custom_ca_changed(ConfigItemBoolean* item, bool new_value) {
+    DEBUG_FUNCTION_LINE_VERBOSE("tvii_use_custom_ca changed to: %d", new_value);
+    Config::tvii_use_custom_ca = new_value;
+
+    WUPSStorageError res;
+    res = WUPSStorageAPI::Store<bool>("tvii_use_custom_ca", Config::tvii_use_custom_ca);
     if (res != WUPS_STORAGE_ERROR_SUCCESS) return report_storage_error(res);
 }
 
@@ -187,6 +197,11 @@ static WUPSConfigAPICallbackStatus ConfigMenuOpenedCallback(WUPSConfigCategoryHa
     auto startup_toast_item = WUPSConfigItemBoolean::Create("show_startup_toast", strings.show_startup_toast_setting, true, Config::show_startup_toast, &show_startup_toast_changed, err);
     if (!startup_toast_item) return report_error(err);
 
+    // Not localized yet - narrow technical toggle. Defaults to the stock Go Daddy
+    // certs so this is an explicit opt-in, documented in the setup guide.
+    auto tvii_ca_item = WUPSConfigItemBoolean::Create("tvii_use_custom_ca", "TVii: use Pretendo root CA (off = stock Nintendo/Go Daddy)", false, Config::tvii_use_custom_ca, &tvii_use_custom_ca_changed, err);
+    if (!tvii_ca_item) return report_error(err);
+
     WUPSConfigAPIItemCallbacksV2 unregisterTasksItemCallbacks = {
             .getCurrentValueDisplay = unregister_task_item_get_display_value,
             .getCurrentValueSelectedDisplay = unregister_task_item_get_display_value,
@@ -236,6 +251,9 @@ static WUPSConfigAPICallbackStatus ConfigMenuOpenedCallback(WUPSConfigCategoryHa
     if (!res) return report_error(err);
 
     res = other_cat->add(std::move(*startup_toast_item), err);
+    if (!res) return report_error(err);
+
+    res = other_cat->add(std::move(*tvii_ca_item), err);
     if (!res) return report_error(err);
 
 
@@ -299,9 +317,19 @@ void Config::Init() {
     res = WUPSStorageAPI::Get<bool>("show_startup_toast", Config::show_startup_toast);
     if (res == WUPS_STORAGE_ERROR_NOT_FOUND) {
         DEBUG_FUNCTION_LINE("Show startup toast value not found, attempting to create");
-    
+
         // Add the value to the storage if it's missing.
         res = WUPSStorageAPI::Store<bool>("show_startup_toast", show_startup_toast);
+        if (res != WUPS_STORAGE_ERROR_SUCCESS) return report_storage_error(res);
+    }
+    else if (res != WUPS_STORAGE_ERROR_SUCCESS) return report_storage_error(res);
+
+    res = WUPSStorageAPI::Get<bool>("tvii_use_custom_ca", Config::tvii_use_custom_ca);
+    if (res == WUPS_STORAGE_ERROR_NOT_FOUND) {
+        DEBUG_FUNCTION_LINE("TVii use custom CA value not found, attempting to create");
+
+        // Add the value to the storage if it's missing.
+        res = WUPSStorageAPI::Store<bool>("tvii_use_custom_ca", tvii_use_custom_ca);
         if (res != WUPS_STORAGE_ERROR_SUCCESS) return report_storage_error(res);
     }
     else if (res != WUPS_STORAGE_ERROR_SUCCESS) return report_storage_error(res);
