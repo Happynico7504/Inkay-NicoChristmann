@@ -16,11 +16,13 @@
 
 #pragma once
 
-// Lives in the plugin so it runs inside TVii's own process via WUPS's
-// ON_APPLICATION_START. Confirmed (by hand, over FTP) that overwriting the two real
-// rootca DER files on the MLC filesystem is what actually makes TVii trust our CA;
-// the system just reverts those files after a few reboots, so we reapply this every
-// launch instead of trying to make it stick permanently.
+// Call from INITIALIZE_PLUGIN (boot), not ON_APPLICATION_START for TVii itself: by
+// the time TVii's own process starts, it has already read/cached these files, so
+// writing them there is too late to affect that launch. Confirmed (by hand, over
+// FTP) that overwriting the two real rootca DER files on the MLC filesystem is what
+// actually makes TVii trust our CA; the system just reverts those files after a few
+// reboots, so we reapply this every boot instead of trying to make it stick
+// permanently.
 //
 // Does the write with an Mocha_UnlockFSClient()-unlocked FSClient talking to the
 // native "/vol/storage_mlc01/..." path directly, not Mocha_MountFS + stdio: content

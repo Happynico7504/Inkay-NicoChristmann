@@ -18,7 +18,6 @@
 #include "utils/logger.h"
 
 #include <coreinit/filesystem.h>
-#include <coreinit/title.h>
 #include <mocha/mocha.h>
 
 #include "tvii_rootca_der.h"          // generated at buildtime from data/tvii_rootca.der (our own CA)
@@ -41,14 +40,8 @@ constexpr tvii_rootca_file tvii_rootca_files[] = {
          godaddy_g2_root_der, godaddy_g2_root_der_size},
 };
 
-constexpr uint64_t TVII_TITLE_ID = 0x000500301001320AULL;
-
-static bool isTviiApplet() {
-    return OSGetTitleID() == TVII_TITLE_ID;
-}
-
 void tviiApplyRootCAOverlay() {
-    if (!isTviiApplet() || !Config::connect_to_network) {
+    if (!Config::connect_to_network) {
         return;
     }
 

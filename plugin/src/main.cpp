@@ -51,6 +51,11 @@ INITIALIZE_PLUGIN() {
 
     // if using pretendo then (try to) apply the ssl patches
     Inkay_Initialize(Config::connect_to_network, Config::show_startup_toast);
+
+    // Must happen at boot, not on TVii's own ON_APPLICATION_START: by the time TVii
+    // itself launches, it has already read these files, so writing them then is
+    // too late to take effect for that launch.
+    tviiApplyRootCAOverlay();
 }
 
 DEINITIALIZE_PLUGIN() {
@@ -64,8 +69,6 @@ DEINITIALIZE_PLUGIN() {
 ON_APPLICATION_START() {
     // Tell the module the plugin is running!
     Inkay_SetPluginRunning();
-
-    tviiApplyRootCAOverlay();
 }
 
 ON_APPLICATION_ENDS() {

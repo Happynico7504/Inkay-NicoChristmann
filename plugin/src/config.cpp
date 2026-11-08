@@ -199,7 +199,7 @@ static WUPSConfigAPICallbackStatus ConfigMenuOpenedCallback(WUPSConfigCategoryHa
 
     // Not localized yet - narrow technical toggle. Defaults to the stock Go Daddy
     // certs so this is an explicit opt-in, documented in the setup guide.
-    auto tvii_ca_item = WUPSConfigItemBoolean::Create("tvii_use_custom_ca", "TVii: use Pretendo root CA (off = stock Nintendo/Go Daddy)", false, Config::tvii_use_custom_ca, &tvii_use_custom_ca_changed, err);
+    auto tvii_ca_item = WUPSConfigItemBoolean::Create("tvii_use_custom_ca", "TVii: use Revivetendo root CA (off = stock Nintendo/Go Daddy)", false, Config::tvii_use_custom_ca, &tvii_use_custom_ca_changed, err);
     if (!tvii_ca_item) return report_error(err);
 
     WUPSConfigAPIItemCallbacksV2 unregisterTasksItemCallbacks = {
