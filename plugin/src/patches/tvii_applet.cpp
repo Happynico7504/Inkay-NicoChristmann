@@ -18,51 +18,35 @@
 #include "utils/logger.h"
 
 #include <cstdio>
-#include <vector>
-#include <array>
+#include <sys/stat.h>
 
 #include <coreinit/title.h>
-#include <mocha/mocha.h>
+#include <content_redirection/redirection.h>
 
 #include "tvii_rootca_der.h" // generated at buildtime from data/tvii_rootca.der
 
-// TVii reads its two Go Daddy root CA DER files straight off the MLC filesystem,
-// below any layer FunctionPatcher can hook. So we overlay the real files on disk
-// for the duration of the TVii applet's run and restore the originals when it
-// closes, rather than patching them permanently.
-constexpr const char *tvii_rootca_mlc_paths[] = {
-        "storage_mlc:/sys/title/00050030/1001320a/content/rootca/Go_Daddy_Class_2_Certification_Authority.der",
-        "storage_mlc:/sys/title/00050030/1001320a/content/rootca/Go_Daddy_Root_Certificate_Authority_-_G2.der",
+// TVii reads its two Go Daddy root CA DER files straight off the MLC filesystem, below
+// anything FunctionPatcher can hook, so there's no function call to intercept. Rather
+// than writing over the real NAND files (which SDCafiine's own ContentRedirection API
+// exists specifically to avoid), we merge an SD-card "content" folder containing our
+// replacement DER files over /vol/content for TVii's own process only - same approach
+// SDCafiine uses to swap a game's content, just with the "rootca" subfolder instead of
+// a modpack's own content tree.
+constexpr const char *tvii_content_replacement_dir = "fs:/vol/external01/wiiu/environments/aroma/plugins/.inkay_tvii_rootca/content";
+
+constexpr struct {
+    const char *relative_path; // relative to tvii_content_replacement_dir
+} tvii_rootca_files[] = {
+        {"rootca/Go_Daddy_Class_2_Certification_Authority.der"},
+        {"rootca/Go_Daddy_Root_Certificate_Authority_-_G2.der"},
 };
 
 constexpr uint64_t TVII_TITLE_ID = 0x000500301001320AULL;
 
-static std::array<std::vector<uint8_t>, std::size(tvii_rootca_mlc_paths)> tvii_rootca_backup{};
-static bool tvii_overlay_applied = false;
-static bool tvii_mocha_mounted = false;
+static CRLayerHandle tvii_content_layer = 0;
 
 static bool isTviiApplet() {
     return OSGetTitleID() == TVII_TITLE_ID;
-}
-
-static bool readWholeFile(const char *path, std::vector<uint8_t> &out) {
-    FILE *f = fopen(path, "rb");
-    if (!f) {
-        return false;
-    }
-
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (size < 0) {
-        fclose(f);
-        return false;
-    }
-
-    out.resize((size_t) size);
-    size_t did_read = fread(out.data(), 1, out.size(), f);
-    fclose(f);
-    return did_read == out.size();
 }
 
 static bool writeWholeFile(const char *path, const uint8_t *data, size_t size) {
@@ -76,64 +60,55 @@ static bool writeWholeFile(const char *path, const uint8_t *data, size_t size) {
     return did_write == size;
 }
 
+static bool ensureReplacementFilesExist() {
+    char dir_path[256];
+
+    snprintf(dir_path, sizeof(dir_path), "%s", tvii_content_replacement_dir);
+    mkdir(dir_path, 0666);
+
+    snprintf(dir_path, sizeof(dir_path), "%s/rootca", tvii_content_replacement_dir);
+    mkdir(dir_path, 0666);
+
+    bool ok = true;
+    for (const auto &file: tvii_rootca_files) {
+        char full_path[256];
+        snprintf(full_path, sizeof(full_path), "%s/%s", tvii_content_replacement_dir, file.relative_path);
+
+        if (!writeWholeFile(full_path, tvii_rootca_der, tvii_rootca_der_size)) {
+            DEBUG_FUNCTION_LINE("Inkay/TVii: failed to write %s", full_path);
+            ok = false;
+        }
+    }
+
+    return ok;
+}
+
 void tviiApplyRootCAOverlay() {
-    if (!isTviiApplet() || !Config::connect_to_network || tvii_overlay_applied) {
+    if (!isTviiApplet() || !Config::connect_to_network || tvii_content_layer != 0) {
         return;
     }
 
-    if (Mocha_InitLibrary() != MOCHA_RESULT_SUCCESS) {
-        DEBUG_FUNCTION_LINE("Inkay/TVii: Mocha init failed, not overlaying root CAs");
+    if (!ensureReplacementFilesExist()) {
+        DEBUG_FUNCTION_LINE("Inkay/TVii: not adding content layer, replacement files missing");
         return;
     }
 
-    if (Mocha_MountFS("storage_mlc", nullptr, "/vol/storage_mlc01") != MOCHA_RESULT_SUCCESS) {
-        DEBUG_FUNCTION_LINE("Inkay/TVii: failed to mount storage_mlc, not overlaying root CAs");
-        Mocha_DeInitLibrary();
+    auto res = ContentRedirection_AddFSLayer(&tvii_content_layer, "Inkay TVii root CA", tvii_content_replacement_dir, FS_LAYER_TYPE_CONTENT_MERGE);
+    if (res != CONTENT_REDIRECTION_RESULT_SUCCESS) {
+        DEBUG_FUNCTION_LINE("Inkay/TVii: ContentRedirection_AddFSLayer failed: %s", ContentRedirection_GetStatusStr(res));
+        tvii_content_layer = 0;
         return;
     }
-    tvii_mocha_mounted = true;
 
-    for (size_t i = 0; i < std::size(tvii_rootca_mlc_paths); i++) {
-        if (!readWholeFile(tvii_rootca_mlc_paths[i], tvii_rootca_backup[i])) {
-            DEBUG_FUNCTION_LINE("Inkay/TVii: failed to back up %s, not overlaying root CAs", tvii_rootca_mlc_paths[i]);
-            for (auto &backup: tvii_rootca_backup) {
-                backup.clear();
-            }
-            Mocha_UnmountFS("storage_mlc");
-            Mocha_DeInitLibrary();
-            tvii_mocha_mounted = false;
-            return;
-        }
-    }
-
-    for (const auto *path: tvii_rootca_mlc_paths) {
-        if (!writeWholeFile(path, tvii_rootca_der, tvii_rootca_der_size)) {
-            DEBUG_FUNCTION_LINE("Inkay/TVii: failed to overlay %s", path);
-        }
-    }
-
-    tvii_overlay_applied = true;
-    DEBUG_FUNCTION_LINE_VERBOSE("Inkay: TVii root CA overlay applied");
+    DEBUG_FUNCTION_LINE_VERBOSE("Inkay: TVii root CA content layer added");
 }
 
 void tviiRemoveRootCAOverlay() {
-    if (!tvii_overlay_applied) {
+    if (tvii_content_layer == 0) {
         return;
     }
 
-    for (size_t i = 0; i < std::size(tvii_rootca_mlc_paths); i++) {
-        if (!tvii_rootca_backup[i].empty()) {
-            writeWholeFile(tvii_rootca_mlc_paths[i], tvii_rootca_backup[i].data(), tvii_rootca_backup[i].size());
-        }
-        tvii_rootca_backup[i].clear();
-    }
-
-    tvii_overlay_applied = false;
-    DEBUG_FUNCTION_LINE_VERBOSE("Inkay: TVii root CA overlay removed");
-
-    if (tvii_mocha_mounted) {
-        Mocha_UnmountFS("storage_mlc");
-        Mocha_DeInitLibrary();
-        tvii_mocha_mounted = false;
-    }
+    ContentRedirection_RemoveFSLayer(tvii_content_layer);
+    tvii_content_layer = 0;
+    DEBUG_FUNCTION_LINE_VERBOSE("Inkay: TVii root CA content layer removed");
 }

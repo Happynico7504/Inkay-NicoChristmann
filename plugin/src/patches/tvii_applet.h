@@ -19,8 +19,8 @@
 // Lives in the plugin, not the module: WUPS's ON_APPLICATION_START/_ENDS are the
 // hooks actually guaranteed to run inside every launched title's own process
 // (including system applets like TVii), unlike the module's WUMS lifecycle
-// callbacks. The devoptab mount for "storage_mlc:" is per-process too, so the
-// plugin has to mount it itself rather than relying on the module's mount in
-// WUMS_INITIALIZE (that one lives in a different process entirely).
+// callbacks. Uses libcontentredirection (the same API SDCafiine uses) to merge a
+// replacement "rootca" folder over /vol/content for TVii's own process, instead
+// of writing over the real NAND files.
 void tviiApplyRootCAOverlay();
 void tviiRemoveRootCAOverlay();
