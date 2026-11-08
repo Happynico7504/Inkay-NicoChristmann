@@ -37,8 +37,7 @@
 #include <cstdint>
 
 #include "ca_pem.h"
-
-#define INKAY_VERSION "v3.0.0-31"
+#include "inkay_config.h"
 
 /**
     Mandatory plugin information.

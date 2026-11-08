@@ -22,8 +22,7 @@
 #include <utils/logger.h>
 #include "config.h"
 #include "module.h"
-
-#define INKAY_VERSION "v3.0.0-30"
+#include "inkay_config.h"
 
 /**
     Mandatory plugin information.

@@ -18,4 +18,8 @@
 #define NETWORK_BASEURL "pretendo.cc"
 #endif
 
+// Shared by both the module (src/main.cpp) and the plugin (plugin/src/main.cpp) so their
+// reported versions can't drift apart - bump this one place for a release.
+#define INKAY_VERSION "v3.0.0-31"
+
 #endif //INKAY_INKAY_CONFIG_H
