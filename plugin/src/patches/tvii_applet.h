@@ -16,11 +16,15 @@
 
 #pragma once
 
-// Lives in the plugin, not the module: WUPS's ON_APPLICATION_START/_ENDS are the
-// hooks actually guaranteed to run inside every launched title's own process
-// (including system applets like TVii), unlike the module's WUMS lifecycle
-// callbacks. Uses libcontentredirection (the same API SDCafiine uses) to merge a
-// replacement "rootca" folder over /vol/content for TVii's own process, instead
-// of writing over the real NAND files.
+// Lives in the plugin so it runs inside TVii's own process via WUPS's
+// ON_APPLICATION_START. Confirmed (by hand, over FTP) that overwriting the two real
+// rootca DER files on the MLC filesystem is what actually makes TVii trust our CA;
+// the system just reverts those files after a few reboots, so we reapply this every
+// launch instead of trying to make it stick permanently.
+//
+// Does the write with an Mocha_UnlockFSClient()-unlocked FSClient talking to the
+// native "/vol/storage_mlc01/..." path directly, not Mocha_MountFS + stdio: content
+// partitions are mounted read-only even to their own owning title, and the devoptab
+// mount's internal FSClient is never unlocked, so fopen()/fwrite() through it never
+// actually had permission to write - it was probably failing silently.
 void tviiApplyRootCAOverlay();
-void tviiRemoveRootCAOverlay();

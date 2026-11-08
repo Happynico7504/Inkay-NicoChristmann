@@ -4,7 +4,6 @@ COPY --from=ghcr.io/wiiu-env/libnotifications:20260404  /artifacts $DEVKITPRO
 COPY --from=ghcr.io/wiiu-env/libfunctionpatcher:20260331 /artifacts $DEVKITPRO
 COPY --from=ghcr.io/wiiu-env/libkernel:20260331 /artifacts $DEVKITPRO
 COPY --from=ghcr.io/wiiu-env/libmocha:20260331 /artifacts $DEVKITPRO
-COPY --from=ghcr.io/wiiu-env/libcontentredirection:latest /artifacts $DEVKITPRO
 COPY --from=ghcr.io/wiiu-env/wiiumodulesystem:20260418 /artifacts $DEVKITPRO
 COPY --from=ghcr.io/wiiu-env/wiiupluginsystem:20260418 /artifacts $DEVKITPRO
 

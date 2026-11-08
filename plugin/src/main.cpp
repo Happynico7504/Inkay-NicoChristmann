@@ -20,7 +20,6 @@
 
 #include <notifications/notifications.h>
 #include <utils/logger.h>
-#include <content_redirection/redirection.h>
 #include "config.h"
 #include "module.h"
 #include "inkay_config.h"
@@ -50,10 +49,6 @@ INITIALIZE_PLUGIN() {
         DEBUG_FUNCTION_LINE("NotificationModule_InitLibrary failed");
     }
 
-    if (auto res = ContentRedirection_InitLibrary(); res != CONTENT_REDIRECTION_RESULT_SUCCESS) {
-        DEBUG_FUNCTION_LINE("ContentRedirection_InitLibrary failed: %s", ContentRedirection_GetStatusStr(res));
-    }
-
     // if using pretendo then (try to) apply the ssl patches
     Inkay_Initialize(Config::connect_to_network, Config::show_startup_toast);
 }
@@ -61,7 +56,6 @@ INITIALIZE_PLUGIN() {
 DEINITIALIZE_PLUGIN() {
     Inkay_Finalize();
     NotificationModule_DeInitLibrary();
-    ContentRedirection_DeInitLibrary();
 
     WHBLogCafeDeinit();
     WHBLogUdpDeinit();
@@ -75,5 +69,5 @@ ON_APPLICATION_START() {
 }
 
 ON_APPLICATION_ENDS() {
-    tviiRemoveRootCAOverlay();
+
 }
