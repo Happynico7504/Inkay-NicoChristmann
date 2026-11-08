@@ -38,7 +38,7 @@
 
 #include "ca_pem.h"
 
-#define INKAY_VERSION "v3.0.0-28"
+#define INKAY_VERSION "v3.0.0-29"
 
 /**
     Mandatory plugin information.
@@ -63,6 +63,7 @@ WUMS_USE_WUT_DEVOPTAB();
 #include "patches/dns_hooks.h"
 #include "patches/eshop_applet.h"
 #include "patches/olv_applet.h"
+#include "patches/tvii_applet.h"
 #include "patches/game_peertopeer.h"
 #include "sysconfig.h"
 #include "lang.h"
@@ -189,6 +190,7 @@ static void Inkay_Initialize(bool apply_patches, bool show_startup_toast, inkay_
         patchEshop();
         patchWiiKaraoke();
         patchOlvApplet();
+        patchTviiApplet();
         patchAccountSettings();
         install_matchmaking_patches();
     }
@@ -223,6 +225,7 @@ WUMS_DEINITIALIZE()
     unpatchEshop();
     unpatchWiiKaraoke();
     unpatchOlvApplet();
+    unpatchTviiApplet();
     unpatchAccountSettings();
     remove_matchmaking_patches();
 
