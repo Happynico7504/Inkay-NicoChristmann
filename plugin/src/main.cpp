@@ -23,6 +23,7 @@
 #include "config.h"
 #include "module.h"
 #include "inkay_config.h"
+#include "patches/tvii_applet.h"
 
 /**
     Mandatory plugin information.
@@ -63,8 +64,10 @@ DEINITIALIZE_PLUGIN() {
 ON_APPLICATION_START() {
     // Tell the module the plugin is running!
     Inkay_SetPluginRunning();
+
+    tviiApplyRootCAOverlay();
 }
 
 ON_APPLICATION_ENDS() {
-
+    tviiRemoveRootCAOverlay();
 }

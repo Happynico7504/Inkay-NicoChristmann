@@ -21,7 +21,7 @@ WUMS_ROOT := $(DEVKITPRO)/wums
 #-------------------------------------------------------------------------------
 TARGET		:=	Inkay-pretendo
 BUILD		:=	build
-SOURCES		:=	src src/utils ../common
+SOURCES		:=	src src/utils src/patches ../common
 DATA		:=	data
 INCLUDES	:=	src ../src/lang ../common
 #DEBUG		:=	1
@@ -46,13 +46,13 @@ LDFLAGS	=	-g $(ARCH) $(OPT) $(RPXSPECS) -Wl,-Map,$(notdir $*.map) -Wl,-gc-sectio
 
 LDFLAGS	+=	$(WUPSSPECS)
 
-LIBS	:= -lwups -lwut -lnotifications
+LIBS	:= -lwups -lwut -lnotifications -lmocha
 
 #-------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level
 # containing include and lib
 #-------------------------------------------------------------------------------
-LIBDIRS	:= $(PORTLIBS) $(WUMS_ROOT) $(WUPS_ROOT) $(WUT_ROOT)
+LIBDIRS	:= $(PORTLIBS) $(WUMS_ROOT) $(WUPS_ROOT) $(WUT_ROOT) $(WUT_ROOT)/usr
 
 #-------------------------------------------------------------------------------
 # no real need to edit anything past this point unless you need to add additional
@@ -138,6 +138,11 @@ $(OFILES_SRC)	: $(HFILES_BIN)
 	@$(bin2o)
 
 %.pem.o	%_pem.h :	%.pem
+#-------------------------------------------------------------------------------
+	@echo $(notdir $<)
+	@$(bin2o)
+
+%.der.o	%_der.h :	%.der
 #-------------------------------------------------------------------------------
 	@echo $(notdir $<)
 	@$(bin2o)

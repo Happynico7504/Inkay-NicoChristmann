@@ -22,16 +22,14 @@
 #include <array>
 
 #include <coreinit/title.h>
+#include <mocha/mocha.h>
 
 #include "tvii_rootca_der.h" // generated at buildtime from data/tvii_rootca.der
 
-// Unlike eShop/Miiverse/account settings, which read their rootca.pem through the
-// applet's own FSClient (so we can hook FSOpenFile/FSReadFile), TVii reads its two
-// Go Daddy root CA DER files straight off the MLC filesystem below the applet layer
-// we can hook with FunctionPatcher. So instead we overlay the real files on disk for
-// the duration of the TVii applet's run (storage_mlc is already mounted via Mocha in
-// WUMS_INITIALIZE) and restore the originals when it closes, rather than patching
-// them permanently.
+// TVii reads its two Go Daddy root CA DER files straight off the MLC filesystem,
+// below any layer FunctionPatcher can hook. So we overlay the real files on disk
+// for the duration of the TVii applet's run and restore the originals when it
+// closes, rather than patching them permanently.
 constexpr const char *tvii_rootca_mlc_paths[] = {
         "storage_mlc:/sys/title/00050030/1001320a/content/rootca/Go_Daddy_Class_2_Certification_Authority.der",
         "storage_mlc:/sys/title/00050030/1001320a/content/rootca/Go_Daddy_Root_Certificate_Authority_-_G2.der",
@@ -41,6 +39,7 @@ constexpr uint64_t TVII_TITLE_ID = 0x000500301001320AULL;
 
 static std::array<std::vector<uint8_t>, std::size(tvii_rootca_mlc_paths)> tvii_rootca_backup{};
 static bool tvii_overlay_applied = false;
+static bool tvii_mocha_mounted = false;
 
 static bool isTviiApplet() {
     return OSGetTitleID() == TVII_TITLE_ID;
@@ -82,12 +81,27 @@ void tviiApplyRootCAOverlay() {
         return;
     }
 
+    if (Mocha_InitLibrary() != MOCHA_RESULT_SUCCESS) {
+        DEBUG_FUNCTION_LINE("Inkay/TVii: Mocha init failed, not overlaying root CAs");
+        return;
+    }
+
+    if (Mocha_MountFS("storage_mlc", nullptr, "/vol/storage_mlc01") != MOCHA_RESULT_SUCCESS) {
+        DEBUG_FUNCTION_LINE("Inkay/TVii: failed to mount storage_mlc, not overlaying root CAs");
+        Mocha_DeInitLibrary();
+        return;
+    }
+    tvii_mocha_mounted = true;
+
     for (size_t i = 0; i < std::size(tvii_rootca_mlc_paths); i++) {
         if (!readWholeFile(tvii_rootca_mlc_paths[i], tvii_rootca_backup[i])) {
             DEBUG_FUNCTION_LINE("Inkay/TVii: failed to back up %s, not overlaying root CAs", tvii_rootca_mlc_paths[i]);
             for (auto &backup: tvii_rootca_backup) {
                 backup.clear();
             }
+            Mocha_UnmountFS("storage_mlc");
+            Mocha_DeInitLibrary();
+            tvii_mocha_mounted = false;
             return;
         }
     }
@@ -116,4 +130,10 @@ void tviiRemoveRootCAOverlay() {
 
     tvii_overlay_applied = false;
     DEBUG_FUNCTION_LINE_VERBOSE("Inkay: TVii root CA overlay removed");
+
+    if (tvii_mocha_mounted) {
+        Mocha_UnmountFS("storage_mlc");
+        Mocha_DeInitLibrary();
+        tvii_mocha_mounted = false;
+    }
 }

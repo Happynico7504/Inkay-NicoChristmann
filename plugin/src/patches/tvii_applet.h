@@ -16,10 +16,11 @@
 
 #pragma once
 
-// TVii reads its root CA DER files straight off the MLC filesystem instead of going
-// through FSClient calls we could hook with FunctionPatcher, so there's nothing to
-// intercept at runtime. Call these from WUMS_APPLICATION_STARTS/_ENDS instead: they
-// swap the real on-disk files for ours while TVii is the running applet and restore
-// the originals when it closes.
+// Lives in the plugin, not the module: WUPS's ON_APPLICATION_START/_ENDS are the
+// hooks actually guaranteed to run inside every launched title's own process
+// (including system applets like TVii), unlike the module's WUMS lifecycle
+// callbacks. The devoptab mount for "storage_mlc:" is per-process too, so the
+// plugin has to mount it itself rather than relying on the module's mount in
+// WUMS_INITIALIZE (that one lives in a different process entirely).
 void tviiApplyRootCAOverlay();
 void tviiRemoveRootCAOverlay();

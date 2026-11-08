@@ -62,7 +62,6 @@ WUMS_USE_WUT_DEVOPTAB();
 #include "patches/dns_hooks.h"
 #include "patches/eshop_applet.h"
 #include "patches/olv_applet.h"
-#include "patches/tvii_applet.h"
 #include "patches/game_peertopeer.h"
 #include "sysconfig.h"
 #include "lang.h"
@@ -250,7 +249,6 @@ WUMS_ALL_APPLICATION_STARTS_DONE()
     peertopeer_patch();
     matchmaking_notify_titleswitch();
     hotpatchAccountSettings();
-    tviiApplyRootCAOverlay();
 
     if (Config::initialized && !Config::plugin_is_loaded)
     {
@@ -275,7 +273,6 @@ WUMS_ALL_APPLICATION_STARTS_DONE()
 
 WUMS_APPLICATION_ENDS()
 {
-    tviiRemoveRootCAOverlay();
 }
 
 WUMS_EXPORT_FUNCTION(Inkay_Initialize);
