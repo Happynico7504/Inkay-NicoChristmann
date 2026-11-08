@@ -38,7 +38,7 @@
 
 #include "ca_pem.h"
 
-#define INKAY_VERSION "v3.0.0-30"
+#define INKAY_VERSION "v3.0.0-31"
 
 /**
     Mandatory plugin information.
@@ -190,7 +190,6 @@ static void Inkay_Initialize(bool apply_patches, bool show_startup_toast, inkay_
         patchEshop();
         patchWiiKaraoke();
         patchOlvApplet();
-        patchTviiApplet();
         patchAccountSettings();
         install_matchmaking_patches();
     }
@@ -225,7 +224,6 @@ WUMS_DEINITIALIZE()
     unpatchEshop();
     unpatchWiiKaraoke();
     unpatchOlvApplet();
-    unpatchTviiApplet();
     unpatchAccountSettings();
     remove_matchmaking_patches();
 
@@ -253,6 +251,7 @@ WUMS_ALL_APPLICATION_STARTS_DONE()
     peertopeer_patch();
     matchmaking_notify_titleswitch();
     hotpatchAccountSettings();
+    tviiApplyRootCAOverlay();
 
     if (Config::initialized && !Config::plugin_is_loaded)
     {
@@ -277,6 +276,7 @@ WUMS_ALL_APPLICATION_STARTS_DONE()
 
 WUMS_APPLICATION_ENDS()
 {
+    tviiRemoveRootCAOverlay();
 }
 
 WUMS_EXPORT_FUNCTION(Inkay_Initialize);

@@ -16,5 +16,10 @@
 
 #pragma once
 
-void patchTviiApplet();
-void unpatchTviiApplet();
+// TVii reads its root CA DER files straight off the MLC filesystem instead of going
+// through FSClient calls we could hook with FunctionPatcher, so there's nothing to
+// intercept at runtime. Call these from WUMS_APPLICATION_STARTS/_ENDS instead: they
+// swap the real on-disk files for ours while TVii is the running applet and restore
+// the originals when it closes.
+void tviiApplyRootCAOverlay();
+void tviiRemoveRootCAOverlay();
