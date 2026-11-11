@@ -16,9 +16,16 @@
 
 #pragma once
 
-// Call from INITIALIZE_PLUGIN (boot), same reasoning as tvii_applet.h: by the
-// time Wii Karaoke U's own process starts, it has already read these files
-// into memory, so writing them after launch is too late for that session.
+// Call from INITIALIZE_PLUGIN, same reasoning as tvii_applet.h: that hook
+// fires once per title LAUNCH (injected into that title's own about-to-start
+// process, not once at system boot), so by the time Wii Karaoke U's own
+// process starts, it has already read these files into memory - writing
+// them after launch is too late for that session. Gates on the title
+// actually being Wii Karaoke U itself internally: unlike the cheap, local-
+// only TVii overlay, this does real network I/O and a long-retrying
+// background thread, so running it on every single game launch (not just
+// Wii Karaoke U's) would be wrong - this was a confirmed real bug (titles
+// stopped launching at all) before the gate was added.
 //
 // Downloads the current data_base01-04.bin catalog from a dedicated plain-
 // HTTP endpoint (no TLS needed - same server, same reasoning as the existing

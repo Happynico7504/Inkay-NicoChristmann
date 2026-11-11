@@ -21,6 +21,7 @@
 #include <coreinit/filesystem.h>
 #include <coreinit/thread.h>
 #include <coreinit/time.h>
+#include <coreinit/title.h>
 #include <mocha/mocha.h>
 #include <curl/curl.h>
 
@@ -28,6 +29,18 @@
 #include <cstring>
 
 namespace {
+
+// WUPS_LOADER_HOOK_INIT_PLUGIN ("called when exiting the plugin loader")
+// fires once per title LAUNCH, injected into that title's own about-to-start
+// process - not once at system boot. Unlike tviiApplyRootCAOverlay (cheap,
+// local-only, harmless to repeat on every launch), this does real network
+// I/O and spawns a background thread with up to ~10 minutes of retries, so
+// running it unconditionally on every single game launch is wrong and was
+// almost certainly why titles stopped launching at all - likely contention
+// on Mocha's shared FSClient/kernel access from repeatedly-spawned threads.
+// Gate on the title actually being Wii Karaoke U itself, same as
+// wiikaraoke-catalogfix/wiikaraoke-debug already do.
+constexpr uint64_t KARAOKE_EU = 0x0005000010149600;
 
 constexpr char SAVE_DIR[] = "/vol/storage_mlc01/usr/save/00050000/10149600/user/common";
 constexpr char VERSION_URL[] = "http://wahp.nicoch.net/content/karaoke_nand/version.txt";
@@ -279,6 +292,10 @@ int catalogThreadMain(int, const char **) {
 } // namespace
 
 void karaokeApplyCatalogOverlay() {
+    if (OSGetTitleID() != KARAOKE_EU) {
+        return;
+    }
+
     if (!Config::connect_to_network) {
         return;
     }
