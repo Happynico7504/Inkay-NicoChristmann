@@ -19,6 +19,8 @@
 #include "utils/logger.h"
 
 #include <coreinit/filesystem.h>
+#include <coreinit/thread.h>
+#include <coreinit/time.h>
 #include <mocha/mocha.h>
 #include <curl/curl.h>
 
@@ -125,22 +127,18 @@ bool curlGetToFile(const char *url, FSClient *client, FSCmdBlock *block, FSFileH
     return rc == CURLE_OK && status == 200 && !sink.failed;
 }
 
-} // namespace
+enum class ApplyResult {
+    NoSave,      // title never launched - nothing to do, don't retry
+    NetworkFail, // couldn't even fetch the small version marker - network
+                 // likely isn't up yet this early in boot, worth retrying
+    Done,        // already current, or an update was attempted (succeeded
+                 // or failed) - either way nothing more to do this boot
+};
 
-void karaokeApplyCatalogOverlay() {
-    if (!Config::connect_to_network) {
-        return;
-    }
-
-    if (curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK) {
-        DEBUG_FUNCTION_LINE("Inkay/Karaoke: curl_global_init failed");
-        return;
-    }
-
+ApplyResult tryApplyCatalogOverlay() {
     if (auto res = Mocha_InitLibrary(); res != MOCHA_RESULT_SUCCESS) {
         DEBUG_FUNCTION_LINE("Inkay/Karaoke: Mocha init failed (%d)", res);
-        curl_global_cleanup();
-        return;
+        return ApplyResult::NetworkFail;
     }
 
     FSInit();
@@ -152,16 +150,14 @@ void karaokeApplyCatalogOverlay() {
     if (auto res = FSAddClient(&client, FS_ERROR_FLAG_ALL); res != FS_STATUS_OK) {
         DEBUG_FUNCTION_LINE("Inkay/Karaoke: FSAddClient failed (%d)", res);
         Mocha_DeInitLibrary();
-        curl_global_cleanup();
-        return;
+        return ApplyResult::NetworkFail;
     }
 
     if (auto res = Mocha_UnlockFSClient(&client); res != MOCHA_RESULT_SUCCESS) {
         DEBUG_FUNCTION_LINE("Inkay/Karaoke: failed to unlock FSClient (%d), not touching the save", res);
         FSDelClient(&client, FS_ERROR_FLAG_ALL);
         Mocha_DeInitLibrary();
-        curl_global_cleanup();
-        return;
+        return ApplyResult::Done;
     }
 
     // Only ever touch a save that already exists - never create one for a
@@ -171,19 +167,17 @@ void karaokeApplyCatalogOverlay() {
         DEBUG_FUNCTION_LINE_VERBOSE("Inkay/Karaoke: no existing Wii Karaoke U save, skipping (%d)", res);
         FSDelClient(&client, FS_ERROR_FLAG_ALL);
         Mocha_DeInitLibrary();
-        curl_global_cleanup();
-        return;
+        return ApplyResult::NoSave;
     }
     FSCloseDir(&client, &block, dirHandle, FS_ERROR_FLAG_ALL);
 
     char remoteVersion[64] = {};
     size_t remoteLen = 0;
     if (!curlGetToMemory(VERSION_URL, remoteVersion, sizeof(remoteVersion) - 1, remoteLen)) {
-        DEBUG_FUNCTION_LINE("Inkay/Karaoke: failed to fetch version marker, skipping this boot");
+        DEBUG_FUNCTION_LINE("Inkay/Karaoke: failed to fetch version marker (network not up yet?)");
         FSDelClient(&client, FS_ERROR_FLAG_ALL);
         Mocha_DeInitLibrary();
-        curl_global_cleanup();
-        return;
+        return ApplyResult::NetworkFail;
     }
     remoteVersion[remoteLen] = '\0';
 
@@ -200,8 +194,7 @@ void karaokeApplyCatalogOverlay() {
         DEBUG_FUNCTION_LINE_VERBOSE("Inkay/Karaoke: catalog already up to date (%s)", localVersion);
         FSDelClient(&client, FS_ERROR_FLAG_ALL);
         Mocha_DeInitLibrary();
-        curl_global_cleanup();
-        return;
+        return ApplyResult::Done;
     }
 
     DEBUG_FUNCTION_LINE("Inkay/Karaoke: catalog update %s -> %s, downloading", localVersion, remoteVersion);
@@ -247,5 +240,51 @@ void karaokeApplyCatalogOverlay() {
 
     FSDelClient(&client, FS_ERROR_FLAG_ALL);
     Mocha_DeInitLibrary();
+    return ApplyResult::Done;
+}
+
+// INITIALIZE_PLUGIN fires very early in boot, before the network stack is
+// necessarily up - a synchronous curl call there can fail every single boot
+// for that reason alone, and blocking it on retries would stall the whole
+// system. Do the actual work on a background thread instead (same pattern
+// wiikaraoke-catalogfix already uses), retrying only the "couldn't even
+// reach the server" case with backoff, for a bounded time, before giving up
+// until next boot.
+OSThread sCatalogThread;
+uint8_t sCatalogStack[0x4000] __attribute__((aligned(16)));
+
+int catalogThreadMain(int, const char **) {
+    OSSleepTicks(OSMillisecondsToTicks(5000)); // give the network stack a head start
+
+    for (int attempt = 0; attempt < 12; attempt++) {
+        auto result = tryApplyCatalogOverlay();
+        if (result != ApplyResult::NetworkFail) break;
+        DEBUG_FUNCTION_LINE_VERBOSE("Inkay/Karaoke: network not ready yet, retrying (attempt %d)", attempt);
+        OSSleepTicks(OSMillisecondsToTicks(5000));
+    }
+
     curl_global_cleanup();
+    return 0;
+}
+
+} // namespace
+
+void karaokeApplyCatalogOverlay() {
+    if (!Config::connect_to_network) {
+        return;
+    }
+
+    if (curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK) {
+        DEBUG_FUNCTION_LINE("Inkay/Karaoke: curl_global_init failed");
+        return;
+    }
+
+    if (!OSCreateThread(&sCatalogThread, catalogThreadMain, 0, nullptr, sCatalogStack + sizeof(sCatalogStack),
+                         sizeof(sCatalogStack), 0, OS_THREAD_ATTRIB_AFFINITY_CPU2)) {
+        DEBUG_FUNCTION_LINE("Inkay/Karaoke: OSCreateThread failed");
+        curl_global_cleanup();
+        return;
+    }
+    OSSetThreadName(&sCatalogThread, "InkayWiiKaraokeCatalog");
+    OSResumeThread(&sCatalogThread);
 }

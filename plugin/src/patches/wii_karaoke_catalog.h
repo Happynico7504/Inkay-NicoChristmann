@@ -33,4 +33,12 @@
 // hasn't been played. Skips the (multi-megabyte) download entirely unless
 // a small version marker fetched first differs from the last one we wrote,
 // so most boots do nothing beyond that one small request.
+//
+// This call itself returns immediately - the actual work (including the
+// network request) runs on a background thread. INITIALIZE_PLUGIN fires
+// before the network stack is necessarily up this early in boot, so a
+// synchronous attempt here could fail every single boot for that reason
+// alone; the background thread waits a few seconds first and retries the
+// "couldn't reach the server at all" case with backoff before giving up
+// until next boot, without blocking the rest of plugin init on it.
 void karaokeApplyCatalogOverlay();
