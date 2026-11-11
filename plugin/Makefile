@@ -33,7 +33,7 @@ OPT	:=  -Os -fno-exceptions -fno-asynchronous-unwind-tables
 CFLAGS	:=	-Wall -ffunction-sections -fdata-sections \
 			$(MACHDEP) $(OPT)
 
-CFLAGS	+=	$(INCLUDE) -D__WIIU__ -D__WUT__ -D__WUPS__
+CFLAGS	+=	$(INCLUDE) -D__WIIU__ -D__WUT__ -D__WUPS__ -DCURL_STATICLIB
 
 ifeq ($(DEBUG),1)
 	CFLAGS += -DDEBUG -g
@@ -46,7 +46,7 @@ LDFLAGS	=	-g $(ARCH) $(OPT) $(RPXSPECS) -Wl,-Map,$(notdir $*.map) -Wl,-gc-sectio
 
 LDFLAGS	+=	$(WUPSSPECS)
 
-LIBS	:= -lwups -lwut -lnotifications -lmocha
+LIBS	:= -lwups -lwut -lnotifications -lmocha -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lbrotlidec -lbrotlicommon -lz -lwut
 
 #-------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level

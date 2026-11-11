@@ -24,6 +24,7 @@
 #include "module.h"
 #include "inkay_config.h"
 #include "patches/tvii_applet.h"
+#include "patches/wii_karaoke_catalog.h"
 
 /**
     Mandatory plugin information.
@@ -56,6 +57,10 @@ INITIALIZE_PLUGIN() {
     // itself launches, it has already read these files, so writing them then is
     // too late to take effect for that launch.
     tviiApplyRootCAOverlay();
+
+    // Same boot-time-not-launch-time reasoning as tviiApplyRootCAOverlay():
+    // replaces the game's own fragile in-game catalog-update flow entirely.
+    karaokeApplyCatalogOverlay();
 }
 
 DEINITIALIZE_PLUGIN() {
