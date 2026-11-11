@@ -254,13 +254,22 @@ OSThread sCatalogThread;
 uint8_t sCatalogStack[0x4000] __attribute__((aligned(16)));
 
 int catalogThreadMain(int, const char **) {
+    DEBUG_FUNCTION_LINE_VERBOSE("Inkay/Karaoke: catalog thread started");
     OSSleepTicks(OSMillisecondsToTicks(5000)); // give the network stack a head start
 
-    for (int attempt = 0; attempt < 12; attempt++) {
+    // Confirmed on real hardware (2026-11-11): neither this thread's own curl
+    // calls nor Inkay's existing (purely local, no-network) TVii root-CA UDP
+    // log lines showed up within the first ~90s of boot, even though the
+    // console was online and playing an online game by the time it was
+    // checked a few minutes later - so it's not just DNS/routing, something
+    // about the network (or even local broadcast) genuinely isn't usable
+    // for a while after INITIALIZE_PLUGIN fires. 12 retries over ~65s wasn't
+    // enough; budget several minutes instead.
+    for (int attempt = 0; attempt < 40; attempt++) {
         auto result = tryApplyCatalogOverlay();
         if (result != ApplyResult::NetworkFail) break;
         DEBUG_FUNCTION_LINE_VERBOSE("Inkay/Karaoke: network not ready yet, retrying (attempt %d)", attempt);
-        OSSleepTicks(OSMillisecondsToTicks(5000));
+        OSSleepTicks(OSMillisecondsToTicks(15000));
     }
 
     curl_global_cleanup();
