@@ -79,7 +79,7 @@ DEINITIALIZE_PLUGIN() {
 }
 
 ON_APPLICATION_START() {
-    karaokeCatalogRequestStop();
+    karaokeCatalogOnApplicationStart();
     karaokeApplyCatalogFix();
 
     // Tell the module the plugin is running!

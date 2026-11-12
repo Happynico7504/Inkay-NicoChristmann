@@ -23,6 +23,7 @@
 #include <coreinit/filesystem.h>
 #include <coreinit/thread.h>
 #include <coreinit/time.h>
+#include <coreinit/title.h>
 #include <mocha/mocha.h>
 #include <curl/curl.h>
 
@@ -350,4 +351,16 @@ void karaokeApplyCatalogOverlay() {
 
 void karaokeCatalogRequestStop() {
     g_stopRequested.store(true, std::memory_order_release);
+}
+
+void karaokeCatalogOnApplicationStart() {
+    // Confirmed real bug: calling karaokeCatalogRequestStop() unconditionally
+    // from ON_APPLICATION_START stopped the catalog thread within seconds of
+    // ANY title's own launch, including the Home Menu's - never giving the
+    // network a real chance to come up. Only Wii Karaoke U itself actually
+    // having started means further writes can't help this session anymore.
+    constexpr uint64_t KARAOKE_EU = 0x0005000010149600;
+    if (OSGetTitleID() == KARAOKE_EU) {
+        karaokeCatalogRequestStop();
+    }
 }
