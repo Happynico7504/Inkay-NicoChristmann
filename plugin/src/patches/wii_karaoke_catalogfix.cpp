@@ -25,6 +25,7 @@
 #include <coreinit/time.h>
 #include <coreinit/title.h>
 
+#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -129,6 +130,13 @@ extern "C" uint32_t wkcf_return_addr;
 // below keep watching the patched bytes after the initial write and
 // reassert them if they ever change back.
 volatile bool g_watchActive = false;
+// DEINITIALIZE_PLUGIN must not return while this thread could still be
+// running - the plugin's own code/memory can be unloaded right after,
+// which it would then be executing out from under. g_watchActive alone
+// never becomes false on its own (the watch loop below runs until the
+// title itself exits), so a separate signal is needed to actually stop it.
+std::atomic<bool> g_shouldExit{false};
+std::atomic<bool> g_threadCreated{false};
 uint32_t g_watchTarget = 0;
 uint32_t g_watchExpected[4];
 uint32_t g_watch2Target = 0;
@@ -215,17 +223,28 @@ bool applyPatchIfTitleMatches() {
 OSThread sPatchThread;
 uint8_t sPatchStack[0x4000] __attribute__((aligned(16)));
 
+// Sleeps up to ms in short slices, returning early (false) the moment
+// g_shouldExit is set, so shutdown doesn't have to wait out a long sleep.
+bool sleepOrExit(uint32_t ms) {
+    constexpr uint32_t SLICE_MS = 250;
+    for (uint32_t slept = 0; slept < ms; slept += SLICE_MS) {
+        if (g_shouldExit.load(std::memory_order_acquire)) return false;
+        OSSleepTicks(OSMillisecondsToTicks(SLICE_MS));
+    }
+    return !g_shouldExit.load(std::memory_order_acquire);
+}
+
 int patchThreadMain(int, const char **) {
-    OSSleepTicks(OSMillisecondsToTicks(3000));
-    for (int attempt = 0; attempt < 20; attempt++) {
+    if (!sleepOrExit(3000)) return 0;
+    for (int attempt = 0; attempt < 20 && !g_shouldExit.load(std::memory_order_acquire); attempt++) {
         if (applyPatchIfTitleMatches()) break;
-        OSSleepTicks(OSMillisecondsToTicks(500));
+        if (!sleepOrExit(500)) return 0;
     }
 
     // Keep watching: if something later re-copies this code region from the
     // original RPX, reassert the patch and log it so we know this happened.
-    while (g_watchActive) {
-        OSSleepTicks(OSMillisecondsToTicks(2000));
+    while (g_watchActive && !g_shouldExit.load(std::memory_order_acquire)) {
+        if (!sleepOrExit(2000)) break;
         volatile uint32_t *p = (volatile uint32_t *) (uintptr_t) g_watchTarget;
         bool reverted = false;
         for (int w = 0; w < 4; w++) {
@@ -266,5 +285,14 @@ void karaokeApplyCatalogFix() {
         return;
     }
     OSSetThreadName(&sPatchThread, "InkayWiiKaraokeCatalogFix");
+    g_threadCreated.store(true, std::memory_order_release);
     OSResumeThread(&sPatchThread);
+}
+
+void karaokeCatalogFixShutdown() {
+    g_shouldExit.store(true, std::memory_order_release);
+    if (g_threadCreated.load(std::memory_order_acquire)) {
+        int result = 0;
+        OSJoinThread(&sPatchThread, &result);
+    }
 }

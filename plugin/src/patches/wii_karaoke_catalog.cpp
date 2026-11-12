@@ -63,6 +63,14 @@ std::atomic<bool> g_giveUp{false};
 // all that's needed for a deadline only ever a few seconds out.
 std::atomic<uint32_t> g_pauseUntilMs{0};
 std::atomic<bool> g_threadStarted{false};
+// Set once, the first time OSCreateThread actually succeeds this boot, and
+// never cleared - unlike g_threadStarted (which the thread clears on exit
+// so karaokeApplyCatalogOverlay knows not to spawn a second one), this is
+// what tells shutdown whether sCatalogThread is a real, OSJoinThread-able
+// handle at all. A Cafe OS thread that has already run to completion is
+// still safely joinable (it just returns immediately with its result), so
+// this never needs to go back to false.
+std::atomic<bool> g_threadCreated{false};
 
 constexpr uint32_t APPLICATION_START_PAUSE_MS = 5000;
 
@@ -432,11 +440,27 @@ void karaokeApplyCatalogOverlay() {
         return;
     }
     OSSetThreadName(&sCatalogThread, "InkayWiiKaraokeCatalog");
+    g_threadCreated.store(true, std::memory_order_release);
     OSResumeThread(&sCatalogThread);
 }
 
 void karaokeCatalogRequestStop() {
     g_giveUp.store(true, std::memory_order_release);
+}
+
+void karaokeCatalogShutdown() {
+    // DEINITIALIZE_PLUGIN must not return while this thread could still be
+    // executing - the plugin's own code/memory can be unloaded right after,
+    // which a still-running thread would then be executing out from under.
+    // g_giveUp makes it stop promptly (the curl progress callback aborts
+    // anything in flight instead of waiting out a timeout), but signalling
+    // alone doesn't guarantee it's actually finished by the time this
+    // returns - only OSJoinThread does that.
+    g_giveUp.store(true, std::memory_order_release);
+    if (g_threadCreated.load(std::memory_order_acquire)) {
+        int result = 0;
+        OSJoinThread(&sCatalogThread, &result);
+    }
 }
 
 void karaokeCatalogOnApplicationStart() {

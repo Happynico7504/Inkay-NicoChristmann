@@ -32,3 +32,11 @@
 // instruction patches into the running title's own RPX, which only exists
 // once that title's process has actually started loading it.
 void karaokeApplyCatalogFix();
+
+// Call from DEINITIALIZE_PLUGIN: signals the watch thread (which otherwise
+// runs forever, reasserting the patches for as long as the title is open)
+// to stop, and blocks until it actually has (OSJoinThread) - the plugin's
+// own code/memory can be unloaded right after DEINITIALIZE_PLUGIN returns,
+// which a still-running thread would then be executing out from under.
+// Safe to call even if the thread was never started this launch.
+void karaokeCatalogFixShutdown();

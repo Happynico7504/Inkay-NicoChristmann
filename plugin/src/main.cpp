@@ -69,7 +69,12 @@ INITIALIZE_PLUGIN() {
 }
 
 DEINITIALIZE_PLUGIN() {
-    karaokeCatalogRequestStop();
+    // Must actually wait for these threads to finish, not just signal them
+    // to stop: the plugin's own code/memory can be unloaded right after
+    // this returns, which a still-running thread would then be executing
+    // out from under.
+    karaokeCatalogShutdown();
+    karaokeCatalogFixShutdown();
 
     Inkay_Finalize();
     NotificationModule_DeInitLibrary();

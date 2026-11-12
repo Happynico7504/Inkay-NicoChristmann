@@ -65,10 +65,19 @@
 void karaokeApplyCatalogOverlay();
 
 // Tells the background thread's retry loop to give up for good instead of
-// running for up to its ~10 minute budget. Call unconditionally from
-// DEINITIALIZE_PLUGIN (this process is exiting, regardless of which title
-// it was for).
+// running for up to its ~10 minute budget, without waiting for it to
+// actually finish - see karaokeCatalogShutdown below for the version that
+// does wait, which DEINITIALIZE_PLUGIN must use instead of this one.
 void karaokeCatalogRequestStop();
+
+// Call from DEINITIALIZE_PLUGIN specifically, not karaokeCatalogRequestStop
+// directly: signals the thread to give up (same as that call) and then
+// blocks until it has actually finished (OSJoinThread), since the plugin's
+// own code/memory can be unloaded right after DEINITIALIZE_PLUGIN returns,
+// which a still-running thread would then be executing out from under.
+// Safe to call even if the thread was never started this boot, or already
+// finished on its own earlier.
+void karaokeCatalogShutdown();
 
 // Call from ON_APPLICATION_START, for every title launch unconditionally.
 // Pauses the background thread (aborting any curl transfer already in
