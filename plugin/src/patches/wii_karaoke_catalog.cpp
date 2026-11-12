@@ -16,6 +16,8 @@
 
 #include "wii_karaoke_catalog.h"
 #include "config.h"
+#include "lang.h"
+#include "Notification.h"
 #include "utils/logger.h"
 
 #include <coreinit/filesystem.h>
@@ -177,15 +179,20 @@ ApplyResult tryApplyCatalogOverlay() {
     }
 
     // Only ever touch a save that already exists - never create one for a
-    // title that hasn't been launched yet.
-    FSDirectoryHandle dirHandle;
-    if (auto res = FSOpenDir(&client, &block, SAVE_DIR, &dirHandle, FS_ERROR_FLAG_ALL); res != FS_STATUS_OK) {
-        DEBUG_FUNCTION_LINE_VERBOSE("Inkay/Karaoke: no existing Wii Karaoke U save, skipping (%d)", res);
+    // title that hasn't been launched yet. The directory alone isn't a
+    // strong enough signal (it can exist before the game has ever written
+    // its own initial catalog there), so check for the actual first catalog
+    // file instead.
+    char firstFilePath[160];
+    snprintf(firstFilePath, sizeof(firstFilePath), "%s/%s", SAVE_DIR, CATALOG_FILES[0].name);
+    FSFileHandle existsHandle;
+    if (auto res = FSOpenFile(&client, &block, firstFilePath, "r", &existsHandle, FS_ERROR_FLAG_ALL); res != FS_STATUS_OK) {
+        DEBUG_FUNCTION_LINE_VERBOSE("Inkay/Karaoke: no existing Wii Karaoke U save files, skipping (%d)", res);
         FSDelClient(&client, FS_ERROR_FLAG_ALL);
         Mocha_DeInitLibrary();
         return ApplyResult::NoSave;
     }
-    FSCloseDir(&client, &block, dirHandle, FS_ERROR_FLAG_ALL);
+    FSCloseFile(&client, &block, existsHandle, FS_ERROR_FLAG_ALL);
 
     char remoteVersion[64] = {};
     size_t remoteLen = 0;
@@ -246,6 +253,9 @@ ApplyResult tryApplyCatalogOverlay() {
             FSCloseFile(&client, &block, vHandle, FS_ERROR_FLAG_ALL);
         }
         DEBUG_FUNCTION_LINE("Inkay/Karaoke: catalog updated to %s", remoteVersion);
+        if (Config::show_startup_toast) {
+            ShowNotification(get_config_strings(Config::current_language).karaoke_catalog_updated.data());
+        }
     } else {
         // Leave the local version marker untouched so this retries next boot
         // rather than being stuck believing a half-applied update finished.
