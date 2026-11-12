@@ -41,14 +41,20 @@
 // wrote, so most boots do nothing beyond that one small request.
 //
 // This call itself returns immediately - the actual work (including the
-// network request) runs on a single background thread that's only ever
-// started once per boot (INITIALIZE_PLUGIN fires once per title launch,
-// but the thread persists across those rather than being respawned each
-// time). INITIALIZE_PLUGIN fires before the network stack is necessarily
-// up this early in boot, so a synchronous attempt here could fail every
-// single boot for that reason alone; the background thread waits a few
-// seconds first and retries the "couldn't reach the server at all" case
-// with backoff before giving up until next boot, without blocking the
+// network request) runs on a background thread that persists across title
+// launches within the same boot rather than being respawned for every one
+// (each call here is a no-op while that thread is still active). If it has
+// given up for good (see g_giveUp in the .cpp - currently only once Wii
+// Karaoke U itself has started), the next call restarts it instead of
+// staying given-up for the rest of the boot: since INITIALIZE_PLUGIN fires
+// for every title launch, and exiting back out of a game always routes
+// through the System Menu before anything else can launch, that's exactly
+// when this naturally resumes - no System-Menu-specific detection needed.
+// INITIALIZE_PLUGIN fires before the network stack is necessarily up this
+// early in boot, so a synchronous attempt here could fail every single
+// boot for that reason alone; the background thread waits a few seconds
+// first and retries the "couldn't reach the server at all" case with
+// backoff before giving up until the next restart, without blocking the
 // rest of plugin init on it.
 //
 // Confirmed real bug on hardware: letting this thread's Mocha/FS/curl work

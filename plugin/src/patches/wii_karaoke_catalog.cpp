@@ -432,14 +432,33 @@ void karaokeApplyCatalogOverlay() {
     }
 
     // INITIALIZE_PLUGIN fires once per title LAUNCH, but the thread it
-    // starts now persists (pausing, not exiting) across those launches
-    // within the same boot - so only ever start it once, not once per
-    // title. g_threadStarted resets itself (and g_giveUp/g_pauseUntil stay
-    // at their fresh defaults) on every real reboot, since that's a fresh
-    // memory space.
+    // starts persists (pausing, not exiting) across those launches rather
+    // than being respawned for every one - this call is a no-op while
+    // it's still active. If it has given up for good instead (currently
+    // only once Wii Karaoke U itself has started - see
+    // karaokeCatalogOnApplicationStart below), g_threadStarted was reset to
+    // false when it exited, so this call restarts it: since exiting back
+    // out of a game always routes through the System Menu's own
+    // INITIALIZE_PLUGIN before anything else can launch, that's exactly
+    // when this naturally fires again - no System-Menu-specific detection
+    // needed. g_threadStarted/g_giveUp/g_pauseUntilMs all reset to their
+    // fresh defaults on every real reboot too, since that's a fresh memory
+    // space.
     if (g_threadStarted.exchange(true, std::memory_order_acq_rel)) {
         return;
     }
+
+    // Join whatever thread ran before (a no-op the very first time ever,
+    // since g_threadCreated is still false then) before reusing
+    // sCatalogThread for a restart - starting a new thread on the same
+    // OSThread struct while the previous run hasn't fully finished
+    // returning yet would be unsafe.
+    if (g_threadCreated.load(std::memory_order_acquire)) {
+        int joinResult = 0;
+        OSJoinThread(&sCatalogThread, &joinResult);
+    }
+
+    g_giveUp.store(false, std::memory_order_release);
 
     if (curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK) {
         DEBUG_FUNCTION_LINE("Inkay/Karaoke: curl_global_init failed");
