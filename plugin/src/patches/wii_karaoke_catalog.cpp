@@ -110,11 +110,30 @@ size_t onMemChunk(char *ptr, size_t size, size_t nmemb, void *userdata) {
     return size * nmemb;
 }
 
+// Confirmed on real hardware: curl_easy_perform was observed blocking
+// indefinitely, past CURLOPT_CONNECTTIMEOUT - that option only bounds the
+// TCP connect phase, not the name lookup, and this toolchain's libcurl
+// resolver isn't threaded, so a DNS query with nowhere to go (or no answer
+// coming back) can hang with no timeout of its own at all. Side-stepping
+// DNS entirely with CURLOPT_RESOLVE, pinning the hostname straight to our
+// own server's known IP, removes that hang outright. Update this if the
+// server ever moves.
+constexpr char SERVER_HOST[] = "wahp.nicoch.net";
+constexpr char SERVER_IP[] = "45.157.178.35";
+
+curl_slist *makeResolveList() {
+    char entry[96];
+    snprintf(entry, sizeof(entry), "%s:80:%s", SERVER_HOST, SERVER_IP);
+    return curl_slist_append(nullptr, entry);
+}
+
 bool curlGetToMemory(const char *url, char *buf, size_t cap, size_t &outLen) {
     CURL *c = curl_easy_init();
     if (!c) return false;
     MemSink sink{buf, cap};
+    curl_slist *resolve = makeResolveList();
     curl_easy_setopt(c, CURLOPT_URL, url);
+    curl_easy_setopt(c, CURLOPT_RESOLVE, resolve);
     curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, onMemChunk);
     curl_easy_setopt(c, CURLOPT_WRITEDATA, &sink);
     curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 5L);
@@ -124,6 +143,7 @@ bool curlGetToMemory(const char *url, char *buf, size_t cap, size_t &outLen) {
     long status = 0;
     curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
     curl_easy_cleanup(c);
+    curl_slist_free_all(resolve);
     if (rc != CURLE_OK || status != 200) return false;
     outLen = sink.len;
     return true;
@@ -133,7 +153,9 @@ bool curlGetToFile(const char *url, FSClient *client, FSCmdBlock *block, FSFileH
     CURL *c = curl_easy_init();
     if (!c) return false;
     StreamSink sink{client, block, handle};
+    curl_slist *resolve = makeResolveList();
     curl_easy_setopt(c, CURLOPT_URL, url);
+    curl_easy_setopt(c, CURLOPT_RESOLVE, resolve);
     curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, onChunk);
     curl_easy_setopt(c, CURLOPT_WRITEDATA, &sink);
     curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 10L);
@@ -143,6 +165,7 @@ bool curlGetToFile(const char *url, FSClient *client, FSCmdBlock *block, FSFileH
     long status = 0;
     curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
     curl_easy_cleanup(c);
+    curl_slist_free_all(resolve);
     return rc == CURLE_OK && status == 200 && !sink.failed;
 }
 
