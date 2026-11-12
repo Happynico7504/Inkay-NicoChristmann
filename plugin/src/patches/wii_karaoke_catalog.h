@@ -49,3 +49,12 @@
 // "couldn't reach the server at all" case with backoff before giving up
 // until next boot, without blocking the rest of plugin init on it.
 void karaokeApplyCatalogOverlay();
+
+// Tells the background thread's retry loop to give up immediately instead
+// of running for up to its ~10 minute budget. Call from DEINITIALIZE_PLUGIN
+// (this process is exiting) and ON_APPLICATION_START (the title that was
+// launching has now fully started, so further writes can't help it
+// specifically anymore) - this is what lets karaokeApplyCatalogOverlay run
+// unconditionally on every launch without risking the thread lingering
+// into the next one.
+void karaokeCatalogRequestStop();

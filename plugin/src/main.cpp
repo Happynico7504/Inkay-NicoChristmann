@@ -64,6 +64,8 @@ INITIALIZE_PLUGIN() {
 }
 
 DEINITIALIZE_PLUGIN() {
+    karaokeCatalogRequestStop();
+
     Inkay_Finalize();
     NotificationModule_DeInitLibrary();
 
@@ -72,6 +74,8 @@ DEINITIALIZE_PLUGIN() {
 }
 
 ON_APPLICATION_START() {
+    karaokeCatalogRequestStop();
+
     // Tell the module the plugin is running!
     Inkay_SetPluginRunning();
 }

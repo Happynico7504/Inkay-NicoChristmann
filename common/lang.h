@@ -37,6 +37,7 @@ struct config_strings {
     std::string_view multiplayer_port_display;
     std::string_view module_not_found;
     std::string_view module_init_not_found;
+    std::string_view karaoke_update_notice;
 };
 
 config_strings get_config_strings(inkay_language language);

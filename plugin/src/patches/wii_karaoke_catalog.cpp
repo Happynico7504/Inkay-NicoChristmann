@@ -16,6 +16,8 @@
 
 #include "wii_karaoke_catalog.h"
 #include "config.h"
+#include "lang.h"
+#include "Notification.h"
 #include "utils/logger.h"
 
 #include <coreinit/filesystem.h>
@@ -25,6 +27,7 @@
 #include <mocha/mocha.h>
 #include <curl/curl.h>
 
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 
@@ -32,14 +35,22 @@ namespace {
 
 // WUPS_LOADER_HOOK_INIT_PLUGIN ("called when exiting the plugin loader")
 // fires once per title LAUNCH, injected into that title's own about-to-start
-// process - not once at system boot. Unlike tviiApplyRootCAOverlay (cheap,
-// local-only, harmless to repeat on every launch), this does real network
-// I/O and spawns a background thread with up to ~10 minutes of retries, so
-// running it unconditionally on every single game launch is wrong and was
-// almost certainly why titles stopped launching at all - likely contention
-// on Mocha's shared FSClient/kernel access from repeatedly-spawned threads.
-// Gate on the title actually being Wii Karaoke U itself, same as
-// wiikaraoke-catalogfix/wiikaraoke-debug already do.
+// process - not once at system boot. We want this running as early as
+// possible regardless of which title is launching (so the catalog has the
+// longest possible head start before Wii Karaoke U itself ever launches),
+// not gated to that title specifically - but letting the background thread
+// linger for up to ~10 minutes regardless of what else happens was a
+// confirmed real bug (titles stopped launching at all), almost certainly
+// from contention on Mocha's shared FSClient/kernel access between a
+// lingering thread from one launch and a new one starting for the next.
+// karaokeCatalogRequestStop() (called from DEINITIALIZE_PLUGIN and
+// ON_APPLICATION_START) tells the retry loop to give up immediately
+// instead of relying on title-ID gating to avoid the overlap.
+std::atomic<bool> g_stopRequested{false};
+
+// Only for the "press No" notice below - the download itself isn't gated on
+// this (see the comment above), but the notice is only meaningful when Wii
+// Karaoke U is actually the title about to launch.
 constexpr uint64_t KARAOKE_EU = 0x0005000010149600;
 
 constexpr char SAVE_DIR[] = "/vol/storage_mlc01/usr/save/00050000/10149600/user/common";
@@ -266,9 +277,26 @@ ApplyResult tryApplyCatalogOverlay() {
 OSThread sCatalogThread;
 uint8_t sCatalogStack[0x4000] __attribute__((aligned(16)));
 
+// Sleeps up to ms, in short slices, returning early (false) the moment
+// g_stopRequested is set instead of always sleeping the full duration -
+// this is what lets the loop below give up within a fraction of a second
+// of the next title launch/plugin deinit rather than up to 15s late.
+bool interruptibleSleep(uint32_t ms) {
+    constexpr uint32_t SLICE_MS = 250;
+    for (uint32_t slept = 0; slept < ms; slept += SLICE_MS) {
+        if (g_stopRequested.load(std::memory_order_acquire)) return false;
+        OSSleepTicks(OSMillisecondsToTicks(SLICE_MS));
+    }
+    return !g_stopRequested.load(std::memory_order_acquire);
+}
+
 int catalogThreadMain(int, const char **) {
     DEBUG_FUNCTION_LINE_VERBOSE("Inkay/Karaoke: catalog thread started");
-    OSSleepTicks(OSMillisecondsToTicks(5000)); // give the network stack a head start
+    if (!interruptibleSleep(5000)) { // give the network stack a head start
+        DEBUG_FUNCTION_LINE_VERBOSE("Inkay/Karaoke: stop requested before first attempt");
+        curl_global_cleanup();
+        return 0;
+    }
 
     // Confirmed on real hardware (2026-11-11): neither this thread's own curl
     // calls nor Inkay's existing (purely local, no-network) TVii root-CA UDP
@@ -277,12 +305,17 @@ int catalogThreadMain(int, const char **) {
     // checked a few minutes later - so it's not just DNS/routing, something
     // about the network (or even local broadcast) genuinely isn't usable
     // for a while after INITIALIZE_PLUGIN fires. 12 retries over ~65s wasn't
-    // enough; budget several minutes instead.
-    for (int attempt = 0; attempt < 40; attempt++) {
+    // enough; budget several minutes instead, but bail out immediately if
+    // the next title launch/plugin deinit signals us to stop.
+    for (int attempt = 0; attempt < 40 && !g_stopRequested.load(std::memory_order_acquire); attempt++) {
         auto result = tryApplyCatalogOverlay();
         if (result != ApplyResult::NetworkFail) break;
         DEBUG_FUNCTION_LINE_VERBOSE("Inkay/Karaoke: network not ready yet, retrying (attempt %d)", attempt);
-        OSSleepTicks(OSMillisecondsToTicks(15000));
+        if (!interruptibleSleep(15000)) break;
+    }
+
+    if (g_stopRequested.load(std::memory_order_acquire)) {
+        DEBUG_FUNCTION_LINE_VERBOSE("Inkay/Karaoke: stopped early (deinit/next title launching)");
     }
 
     curl_global_cleanup();
@@ -292,12 +325,14 @@ int catalogThreadMain(int, const char **) {
 } // namespace
 
 void karaokeApplyCatalogOverlay() {
-    if (OSGetTitleID() != KARAOKE_EU) {
+    if (!Config::connect_to_network) {
         return;
     }
 
-    if (!Config::connect_to_network) {
-        return;
+    g_stopRequested.store(false, std::memory_order_release);
+
+    if (OSGetTitleID() == KARAOKE_EU && Config::show_startup_toast) {
+        ShowNotification(get_config_strings(Config::current_language).karaoke_update_notice.data());
     }
 
     if (curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK) {
@@ -313,4 +348,8 @@ void karaokeApplyCatalogOverlay() {
     }
     OSSetThreadName(&sCatalogThread, "InkayWiiKaraokeCatalog");
     OSResumeThread(&sCatalogThread);
+}
+
+void karaokeCatalogRequestStop() {
+    g_stopRequested.store(true, std::memory_order_release);
 }
