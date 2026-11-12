@@ -332,17 +332,32 @@ ApplyResult tryApplyCatalogOverlay() {
         if (Config::show_startup_toast) {
             ShowNotification(get_config_strings(Config::current_language).karaoke_catalog_updated.data());
         }
-    } else {
-        // Leave the local version marker untouched so this retries next boot
-        // rather than being stuck believing a half-applied update finished.
-        // A partially-written data_baseNN.bin is harmless either way: the
-        // game's own CRC32 check rejects anything that doesn't verify whole.
-        DEBUG_FUNCTION_LINE("Inkay/Karaoke: catalog update failed partway, will retry next boot");
+        FSDelClient(&client, FS_ERROR_FLAG_ALL);
+        Mocha_DeInitLibrary();
+        return ApplyResult::Done;
     }
 
+    // Leave the local version marker untouched either way, so a failed
+    // attempt retries from scratch rather than being stuck believing a
+    // half-applied update finished. A partially-written data_baseNN.bin is
+    // harmless regardless: the game's own CRC32 check rejects anything
+    // that doesn't verify whole.
+    //
+    // Confirmed real bug: this used to return Done unconditionally here,
+    // which stopped the whole retry loop for the rest of the boot even
+    // when the failure was just our own pause mechanism aborting an
+    // in-progress transfer for an application start that had nothing to
+    // do with Wii Karaoke U - idle time afterwards would never actually
+    // resume the download. Retry like a network failure instead, unless
+    // the plugin has actually given up for good (the outer loop also
+    // checks g_giveUp itself and will stop regardless).
     FSDelClient(&client, FS_ERROR_FLAG_ALL);
     Mocha_DeInitLibrary();
-    return ApplyResult::Done;
+    if (g_giveUp.load(std::memory_order_acquire)) {
+        return ApplyResult::Done;
+    }
+    DEBUG_FUNCTION_LINE("Inkay/Karaoke: catalog update failed partway, retrying");
+    return ApplyResult::NetworkFail;
 }
 
 // INITIALIZE_PLUGIN fires very early in boot, before the network stack is
