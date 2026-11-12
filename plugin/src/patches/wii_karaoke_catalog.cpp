@@ -38,15 +38,45 @@ namespace {
 // process - not once at system boot. We want this running as early as
 // possible regardless of which title is launching (so the catalog has the
 // longest possible head start before Wii Karaoke U itself ever launches),
-// not gated to that title specifically - but letting the background thread
-// linger for up to ~10 minutes regardless of what else happens was a
-// confirmed real bug (titles stopped launching at all), almost certainly
-// from contention on Mocha's shared FSClient/kernel access between a
-// lingering thread from one launch and a new one starting for the next.
-// karaokeCatalogRequestStop() (called from DEINITIALIZE_PLUGIN and
-// ON_APPLICATION_START) tells the retry loop to give up immediately
-// instead of relying on title-ID gating to avoid the overlap.
-std::atomic<bool> g_stopRequested{false};
+// not gated to that title specifically.
+//
+// Confirmed on real hardware: letting this thread's Mocha/FS/curl work run
+// through an application-start transition (any title's, not just Wii
+// Karaoke U's) makes the UI hang right at that transition - almost
+// certainly contention on Mocha's shared FSClient/kernel access between
+// this thread and whatever the newly-starting title's own process needs at
+// that exact moment. A one-shot "stop requested" flag wasn't enough: even
+// signalling it couldn't interrupt a curl_easy_perform() already in
+// progress, which can run for its own full timeout (up to 180s for a big
+// file) regardless. g_giveUp is for stopping for good (process exiting, or
+// Wii Karaoke U itself has started so further writes can't help this
+// session); g_pauseUntil is a rolling "don't touch Mocha/curl before this
+// tick" deadline, pushed forward by every single application start and
+// checked both between attempts AND inside curl's own progress callback
+// (abortIfPausedOrGivingUp below), so an in-progress transfer actually
+// gets cut short immediately instead of running out its timeout.
+std::atomic<bool> g_giveUp{false};
+// Milliseconds-since-boot deadline, not OSTime ticks directly: this target
+// has no libatomic, so a 64-bit std::atomic<OSTime> fails to link
+// (__atomic_load_8/__atomic_store_8 undefined). A plain uint32_t avoids
+// that; nowMs()/isPaused() below compare it wraparound-safely, which is
+// all that's needed for a deadline only ever a few seconds out.
+std::atomic<uint32_t> g_pauseUntilMs{0};
+std::atomic<bool> g_threadStarted{false};
+
+constexpr uint32_t APPLICATION_START_PAUSE_MS = 5000;
+
+uint32_t nowMs() {
+    return (uint32_t) OSTicksToMilliseconds(OSGetSystemTime());
+}
+
+bool isPaused() {
+    return (int32_t) (g_pauseUntilMs.load(std::memory_order_acquire) - nowMs()) > 0;
+}
+
+void pauseFor(uint32_t ms) {
+    g_pauseUntilMs.store(nowMs() + ms, std::memory_order_release);
+}
 
 constexpr char SAVE_DIR[] = "/vol/storage_mlc01/usr/save/00050000/10149600/user/common";
 constexpr char VERSION_URL[] = "http://wahp.nicoch.net/content/karaoke_nand/version.txt";
@@ -127,6 +157,16 @@ curl_slist *makeResolveList() {
     return curl_slist_append(nullptr, entry);
 }
 
+// Lets an application-start pause (or a permanent give-up) cut an
+// in-progress transfer short immediately instead of waiting out its own
+// timeout - CURLOPT_NOPROGRESS must be explicitly turned off for this to
+// fire at all.
+int abortIfPausedOrGivingUp(void *, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
+    if (g_giveUp.load(std::memory_order_acquire)) return 1;
+    if (isPaused()) return 1;
+    return 0;
+}
+
 bool curlGetToMemory(const char *url, char *buf, size_t cap, size_t &outLen) {
     CURL *c = curl_easy_init();
     if (!c) return false;
@@ -136,6 +176,8 @@ bool curlGetToMemory(const char *url, char *buf, size_t cap, size_t &outLen) {
     curl_easy_setopt(c, CURLOPT_RESOLVE, resolve);
     curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, onMemChunk);
     curl_easy_setopt(c, CURLOPT_WRITEDATA, &sink);
+    curl_easy_setopt(c, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(c, CURLOPT_XFERINFOFUNCTION, abortIfPausedOrGivingUp);
     curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 5L);
     curl_easy_setopt(c, CURLOPT_TIMEOUT, 15L);
     curl_easy_setopt(c, CURLOPT_NOSIGNAL, 1L);
@@ -158,6 +200,8 @@ bool curlGetToFile(const char *url, FSClient *client, FSCmdBlock *block, FSFileH
     curl_easy_setopt(c, CURLOPT_RESOLVE, resolve);
     curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, onChunk);
     curl_easy_setopt(c, CURLOPT_WRITEDATA, &sink);
+    curl_easy_setopt(c, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(c, CURLOPT_XFERINFOFUNCTION, abortIfPausedOrGivingUp);
     curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 10L);
     curl_easy_setopt(c, CURLOPT_TIMEOUT, 180L); // ~16MB over a slow/retried connection
     curl_easy_setopt(c, CURLOPT_NOSIGNAL, 1L);
@@ -304,47 +348,56 @@ OSThread sCatalogThread;
 uint8_t sCatalogStack[0x4000] __attribute__((aligned(16)));
 
 // Sleeps up to ms, in short slices, returning early (false) the moment
-// g_stopRequested is set instead of always sleeping the full duration -
-// this is what lets the loop below give up within a fraction of a second
-// of the next title launch/plugin deinit rather than up to 15s late.
-bool interruptibleSleep(uint32_t ms) {
+// g_giveUp is set instead of always sleeping the full duration.
+bool sleepOrGiveUp(uint32_t ms) {
     constexpr uint32_t SLICE_MS = 250;
     for (uint32_t slept = 0; slept < ms; slept += SLICE_MS) {
-        if (g_stopRequested.load(std::memory_order_acquire)) return false;
+        if (g_giveUp.load(std::memory_order_acquire)) return false;
         OSSleepTicks(OSMillisecondsToTicks(SLICE_MS));
     }
-    return !g_stopRequested.load(std::memory_order_acquire);
+    return !g_giveUp.load(std::memory_order_acquire);
+}
+
+// Blocks (checking g_giveUp) until the current application-start pause
+// window has fully elapsed - called before every attempt, on top of the
+// curl progress callback aborting anything already in flight when a new
+// pause window gets set mid-transfer.
+bool waitOutPause() {
+    while (isPaused()) {
+        if (g_giveUp.load(std::memory_order_acquire)) return false;
+        OSSleepTicks(OSMillisecondsToTicks(250));
+    }
+    return !g_giveUp.load(std::memory_order_acquire);
 }
 
 int catalogThreadMain(int, const char **) {
     DEBUG_FUNCTION_LINE_VERBOSE("Inkay/Karaoke: catalog thread started");
-    if (!interruptibleSleep(5000)) { // give the network stack a head start
-        DEBUG_FUNCTION_LINE_VERBOSE("Inkay/Karaoke: stop requested before first attempt");
-        curl_global_cleanup();
-        return 0;
-    }
+    pauseFor(APPLICATION_START_PAUSE_MS);
 
-    // Confirmed on real hardware (2026-11-11): neither this thread's own curl
-    // calls nor Inkay's existing (purely local, no-network) TVii root-CA UDP
-    // log lines showed up within the first ~90s of boot, even though the
-    // console was online and playing an online game by the time it was
+    // Confirmed on real hardware (2026-11-11/12): neither this thread's own
+    // curl calls nor Inkay's existing (purely local, no-network) TVii root-
+    // CA UDP log lines showed up within the first ~90s of boot, even though
+    // the console was online and playing an online game by the time it was
     // checked a few minutes later - so it's not just DNS/routing, something
     // about the network (or even local broadcast) genuinely isn't usable
-    // for a while after INITIALIZE_PLUGIN fires. 12 retries over ~65s wasn't
-    // enough; budget several minutes instead, but bail out immediately if
-    // the next title launch/plugin deinit signals us to stop.
-    for (int attempt = 0; attempt < 40 && !g_stopRequested.load(std::memory_order_acquire); attempt++) {
+    // for a while after INITIALIZE_PLUGIN fires. Budget several minutes of
+    // retries, pausing (not just slowing down) around every application
+    // start along the way - see g_pauseUntil's own comment above.
+    for (int attempt = 0; attempt < 40; attempt++) {
+        if (!waitOutPause()) break;
         auto result = tryApplyCatalogOverlay();
+        if (g_giveUp.load(std::memory_order_acquire)) break;
         if (result != ApplyResult::NetworkFail) break;
         DEBUG_FUNCTION_LINE_VERBOSE("Inkay/Karaoke: network not ready yet, retrying (attempt %d)", attempt);
-        if (!interruptibleSleep(15000)) break;
+        if (!sleepOrGiveUp(15000)) break;
     }
 
-    if (g_stopRequested.load(std::memory_order_acquire)) {
-        DEBUG_FUNCTION_LINE_VERBOSE("Inkay/Karaoke: stopped early (deinit/next title launching)");
+    if (g_giveUp.load(std::memory_order_acquire)) {
+        DEBUG_FUNCTION_LINE_VERBOSE("Inkay/Karaoke: gave up (deinit, or Wii Karaoke U itself started)");
     }
 
     curl_global_cleanup();
+    g_threadStarted.store(false, std::memory_order_release);
     return 0;
 }
 
@@ -355,10 +408,19 @@ void karaokeApplyCatalogOverlay() {
         return;
     }
 
-    g_stopRequested.store(false, std::memory_order_release);
+    // INITIALIZE_PLUGIN fires once per title LAUNCH, but the thread it
+    // starts now persists (pausing, not exiting) across those launches
+    // within the same boot - so only ever start it once, not once per
+    // title. g_threadStarted resets itself (and g_giveUp/g_pauseUntil stay
+    // at their fresh defaults) on every real reboot, since that's a fresh
+    // memory space.
+    if (g_threadStarted.exchange(true, std::memory_order_acq_rel)) {
+        return;
+    }
 
     if (curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK) {
         DEBUG_FUNCTION_LINE("Inkay/Karaoke: curl_global_init failed");
+        g_threadStarted.store(false, std::memory_order_release);
         return;
     }
 
@@ -366,6 +428,7 @@ void karaokeApplyCatalogOverlay() {
                          sizeof(sCatalogStack), 0, OS_THREAD_ATTRIB_AFFINITY_CPU2)) {
         DEBUG_FUNCTION_LINE("Inkay/Karaoke: OSCreateThread failed");
         curl_global_cleanup();
+        g_threadStarted.store(false, std::memory_order_release);
         return;
     }
     OSSetThreadName(&sCatalogThread, "InkayWiiKaraokeCatalog");
@@ -373,15 +436,21 @@ void karaokeApplyCatalogOverlay() {
 }
 
 void karaokeCatalogRequestStop() {
-    g_stopRequested.store(true, std::memory_order_release);
+    g_giveUp.store(true, std::memory_order_release);
 }
 
 void karaokeCatalogOnApplicationStart() {
-    // Confirmed real bug: calling karaokeCatalogRequestStop() unconditionally
-    // from ON_APPLICATION_START stopped the catalog thread within seconds of
-    // ANY title's own launch, including the Home Menu's - never giving the
-    // network a real chance to come up. Only Wii Karaoke U itself actually
-    // having started means further writes can't help this session anymore.
+    // Confirmed real bug: calling what's now karaokeCatalogRequestStop()
+    // unconditionally from here stopped the catalog thread for good within
+    // seconds of ANY title's own launch, including the Home Menu's - never
+    // giving the network a real chance to come up. This now just pauses
+    // (extends g_pauseUntil) for every application start, which the curl
+    // progress callback also uses to cut an in-progress transfer short
+    // immediately - and only gives up for good once Wii Karaoke U itself
+    // has actually started, since that's the only case where further
+    // writes genuinely can't help this session anymore.
+    pauseFor(APPLICATION_START_PAUSE_MS);
+
     constexpr uint64_t KARAOKE_EU = 0x0005000010149600;
     if (OSGetTitleID() == KARAOKE_EU) {
         karaokeCatalogRequestStop();

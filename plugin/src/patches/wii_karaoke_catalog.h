@@ -41,27 +41,41 @@
 // wrote, so most boots do nothing beyond that one small request.
 //
 // This call itself returns immediately - the actual work (including the
-// network request) runs on a background thread. INITIALIZE_PLUGIN fires
-// before the network stack is necessarily up this early in boot, so a
-// synchronous attempt here could fail every single boot for that reason
-// alone; the background thread waits a few seconds first and retries the
-// "couldn't reach the server at all" case with backoff before giving up
-// until next boot, without blocking the rest of plugin init on it.
+// network request) runs on a single background thread that's only ever
+// started once per boot (INITIALIZE_PLUGIN fires once per title launch,
+// but the thread persists across those rather than being respawned each
+// time). INITIALIZE_PLUGIN fires before the network stack is necessarily
+// up this early in boot, so a synchronous attempt here could fail every
+// single boot for that reason alone; the background thread waits a few
+// seconds first and retries the "couldn't reach the server at all" case
+// with backoff before giving up until next boot, without blocking the
+// rest of plugin init on it.
+//
+// Confirmed real bug on hardware: letting this thread's Mocha/FS/curl work
+// run through an application-start transition (any title's, not just Wii
+// Karaoke U's) made the UI hang right at that transition - contention on
+// Mocha's shared FSClient/kernel access between this thread and whatever
+// the newly-starting title's own process needs right then. A one-shot
+// "stop requested" flag alone wasn't enough, since signalling it couldn't
+// interrupt a curl_easy_perform() already in progress (which can run for
+// its own full timeout, up to 180s for a big file, regardless) - the
+// thread now also installs a curl progress callback that aborts an
+// in-progress transfer the moment an application-start pause is set, via
+// karaokeCatalogOnApplicationStart below.
 void karaokeApplyCatalogOverlay();
 
-// Tells the background thread's retry loop to give up immediately instead
-// of running for up to its ~10 minute budget. Call unconditionally from
+// Tells the background thread's retry loop to give up for good instead of
+// running for up to its ~10 minute budget. Call unconditionally from
 // DEINITIALIZE_PLUGIN (this process is exiting, regardless of which title
-// it was for) - this is what lets karaokeApplyCatalogOverlay run on every
-// launch without risking the thread lingering into the next one.
+// it was for).
 void karaokeCatalogRequestStop();
 
-// Same stop signal, but only takes effect if the title that just started is
-// Wii Karaoke U itself - call from ON_APPLICATION_START. Confirmed real bug:
-// calling karaokeCatalogRequestStop() unconditionally there stopped the
-// thread within seconds of ANY title's own launch, including the Home
-// Menu's (which starts almost immediately after INITIALIZE_PLUGIN) - never
-// giving the network a real chance to come up before giving up. "Further
-// writes can't help this session anymore" is only true once Wii Karaoke U
-// itself has started, not for every other title along the way.
+// Call from ON_APPLICATION_START, for every title launch unconditionally.
+// Pauses the background thread (aborting any curl transfer already in
+// flight, and holding off starting a new one) for a few seconds around
+// every single application start - confirmed necessary on hardware, see
+// karaokeApplyCatalogOverlay's own comment above. Only also calls
+// karaokeCatalogRequestStop() (give up for good, not just pause) if the
+// title that just started is Wii Karaoke U itself, since that's the only
+// case where further writes genuinely can't help this session anymore.
 void karaokeCatalogOnApplicationStart();
