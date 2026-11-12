@@ -12,4 +12,3 @@
 ,.multiplayer_port_display="Используем UDP-порт %hu для сетевой игры"
 ,.module_not_found="Ошибка установки патча Pretendo - для восстановления, запустите Aroma Updater (686-1001 Модуль отсутствует)"
 ,.module_init_not_found="Ошибка установки патча Pretendo - для восстановления, запустите Aroma Updater (686-1002 Инициализация модуля)"
-,.karaoke_update_notice="Wii Karaoke U: если предложит обновление через интернет, нажмите Нет - каталог уже актуален"

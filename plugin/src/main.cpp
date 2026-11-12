@@ -25,6 +25,7 @@
 #include "inkay_config.h"
 #include "patches/tvii_applet.h"
 #include "patches/wii_karaoke_catalog.h"
+#include "patches/wii_karaoke_catalogfix.h"
 
 /**
     Mandatory plugin information.
@@ -59,7 +60,11 @@ INITIALIZE_PLUGIN() {
     tviiApplyRootCAOverlay();
 
     // Same boot-time-not-launch-time reasoning as tviiApplyRootCAOverlay():
-    // replaces the game's own fragile in-game catalog-update flow entirely.
+    // gives the save-data catalog the longest possible head start before
+    // Wii Karaoke U itself might launch. The game's own online update still
+    // runs normally and is expected to succeed - karaokeApplyCatalogFix
+    // (ON_APPLICATION_START below) is what makes that actually work against
+    // our server, rather than this being a replacement for it.
     karaokeApplyCatalogOverlay();
 }
 
@@ -75,6 +80,7 @@ DEINITIALIZE_PLUGIN() {
 
 ON_APPLICATION_START() {
     karaokeCatalogRequestStop();
+    karaokeApplyCatalogFix();
 
     // Tell the module the plugin is running!
     Inkay_SetPluginRunning();

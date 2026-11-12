@@ -12,4 +12,3 @@
 ,.multiplayer_port_display="È in uso la porta UDP %hu per il multigiocatore"
 ,.module_not_found="Patch di Pretendo fallita - usa Aroma Updater per correggere (686-1001 Modulo mancante)"
 ,.module_init_not_found="Patch di Pretendo fallita - usa Aroma Updater per correggere (686-1002 Module init)"
-,.karaoke_update_notice="Wii Karaoke U: se chiede un aggiornamento online, premi No - il catalogo è già aggiornato"

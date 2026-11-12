@@ -16,14 +16,11 @@
 
 #include "wii_karaoke_catalog.h"
 #include "config.h"
-#include "lang.h"
-#include "Notification.h"
 #include "utils/logger.h"
 
 #include <coreinit/filesystem.h>
 #include <coreinit/thread.h>
 #include <coreinit/time.h>
-#include <coreinit/title.h>
 #include <mocha/mocha.h>
 #include <curl/curl.h>
 
@@ -47,11 +44,6 @@ namespace {
 // ON_APPLICATION_START) tells the retry loop to give up immediately
 // instead of relying on title-ID gating to avoid the overlap.
 std::atomic<bool> g_stopRequested{false};
-
-// Only for the "press No" notice below - the download itself isn't gated on
-// this (see the comment above), but the notice is only meaningful when Wii
-// Karaoke U is actually the title about to launch.
-constexpr uint64_t KARAOKE_EU = 0x0005000010149600;
 
 constexpr char SAVE_DIR[] = "/vol/storage_mlc01/usr/save/00050000/10149600/user/common";
 constexpr char VERSION_URL[] = "http://wahp.nicoch.net/content/karaoke_nand/version.txt";
@@ -330,10 +322,6 @@ void karaokeApplyCatalogOverlay() {
     }
 
     g_stopRequested.store(false, std::memory_order_release);
-
-    if (OSGetTitleID() == KARAOKE_EU && Config::show_startup_toast) {
-        ShowNotification(get_config_strings(Config::current_language).karaoke_update_notice.data());
-    }
 
     if (curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK) {
         DEBUG_FUNCTION_LINE("Inkay/Karaoke: curl_global_init failed");
