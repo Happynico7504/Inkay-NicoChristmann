@@ -137,6 +137,11 @@ volatile bool g_watchActive = false;
 // title itself exits), so a separate signal is needed to actually stop it.
 std::atomic<bool> g_shouldExit{false};
 std::atomic<bool> g_threadCreated{false};
+// True for as long as patchThreadMain's body is actually executing - set at
+// its very start, cleared right before it returns. Used to bound shutdown's
+// wait instead of ever blocking on OSJoinThread indefinitely (see
+// karaokeCatalogFixShutdown's own comment).
+std::atomic<bool> g_threadRunning{false};
 uint32_t g_watchTarget = 0;
 uint32_t g_watchExpected[4];
 uint32_t g_watch2Target = 0;
@@ -234,7 +239,34 @@ bool sleepOrExit(uint32_t ms) {
     return !g_shouldExit.load(std::memory_order_acquire);
 }
 
+// RAII so g_threadRunning is cleared on every return path below, not just
+// the final one at the bottom of the function - there are several early
+// returns, and a plain store right before "the" return would miss them.
+struct ThreadRunningGuard {
+    ThreadRunningGuard() { g_threadRunning.store(true, std::memory_order_release); }
+    ~ThreadRunningGuard() { g_threadRunning.store(false, std::memory_order_release); }
+};
+
+// Confirmed real bug on hardware: a plain blocking OSJoinThread() in
+// karaokeCatalogFixShutdown can hang forever. kernelCopyToGame (KernelCopyData)
+// and the OSDynLoad calls in applyPatchIfTitleMatches aren't interruptible
+// like a curl transfer would be, so if this thread is ever genuinely stuck
+// inside one of those - waiting on some IOSU-level resource that only frees
+// up once this process finishes exiting - OSJoinThread blocking for it IS
+// the deadlock: shutdown can't return until this thread exits, this thread
+// can't get past its blocked call until the process finishes exiting, and
+// the process can't finish exiting until shutdown returns.
+bool waitForThreadToExit(uint32_t timeoutMs) {
+    constexpr uint32_t SLICE_MS = 100;
+    for (uint32_t waited = 0; waited < timeoutMs; waited += SLICE_MS) {
+        if (!g_threadRunning.load(std::memory_order_acquire)) return true;
+        OSSleepTicks(OSMillisecondsToTicks(SLICE_MS));
+    }
+    return !g_threadRunning.load(std::memory_order_acquire);
+}
+
 int patchThreadMain(int, const char **) {
+    ThreadRunningGuard runningGuard;
     if (!sleepOrExit(3000)) return 0;
     for (int attempt = 0; attempt < 20 && !g_shouldExit.load(std::memory_order_acquire); attempt++) {
         if (applyPatchIfTitleMatches()) break;
@@ -292,7 +324,8 @@ void karaokeApplyCatalogFix() {
 void karaokeCatalogFixShutdown() {
     g_shouldExit.store(true, std::memory_order_release);
     if (g_threadCreated.load(std::memory_order_acquire)) {
-        int result = 0;
-        OSJoinThread(&sPatchThread, &result);
+        if (!waitForThreadToExit(3000)) {
+            DEBUG_FUNCTION_LINE("Inkay/KaraokeFix: shutdown timed out waiting for the watch thread");
+        }
     }
 }

@@ -86,6 +86,29 @@ void pauseFor(uint32_t ms) {
     g_pauseUntilMs.store(nowMs() + ms, std::memory_order_release);
 }
 
+// Confirmed real bug on hardware: a plain blocking OSJoinThread() here can
+// hang forever. Mocha_InitLibrary/FSAddClient/Mocha_UnlockFSClient aren't
+// interruptible like the curl calls are (no progress-callback equivalent),
+// so if the thread is ever genuinely stuck inside one of those - waiting
+// on some IOSU-level resource that only becomes free once this process
+// has actually finished tearing down - then DEINITIALIZE_PLUGIN blocking
+// on OSJoinThread to wait for it IS the deadlock: this call can't return
+// until the thread exits, the thread can't get past its blocked call until
+// this process finishes exiting, and this process can't finish exiting
+// until DEINITIALIZE_PLUGIN (this call) returns. Poll g_threadStarted with
+// a bound instead of ever blocking indefinitely - a hung thread executing
+// against unloaded memory in the rare case this still doesn't clear in
+// time is a real risk, but nowhere near as bad as freezing the whole
+// system's UI forever, which was happening without this.
+bool waitForThreadToExit(uint32_t timeoutMs) {
+    constexpr uint32_t SLICE_MS = 100;
+    for (uint32_t waited = 0; waited < timeoutMs; waited += SLICE_MS) {
+        if (!g_threadStarted.load(std::memory_order_acquire)) return true;
+        OSSleepTicks(OSMillisecondsToTicks(SLICE_MS));
+    }
+    return !g_threadStarted.load(std::memory_order_acquire);
+}
+
 constexpr char SAVE_DIR[] = "/vol/storage_mlc01/usr/save/00050000/10149600/user/common";
 constexpr char VERSION_URL[] = "http://wahp.nicoch.net/content/karaoke_nand/version.txt";
 
@@ -486,14 +509,22 @@ void karaokeCatalogShutdown() {
     // DEINITIALIZE_PLUGIN must not return while this thread could still be
     // executing - the plugin's own code/memory can be unloaded right after,
     // which a still-running thread would then be executing out from under.
-    // g_giveUp makes it stop promptly (the curl progress callback aborts
-    // anything in flight instead of waiting out a timeout), but signalling
-    // alone doesn't guarantee it's actually finished by the time this
-    // returns - only OSJoinThread does that.
+    // g_giveUp makes it stop promptly whenever it's inside a curl call (the
+    // progress callback aborts anything in flight instead of waiting out a
+    // timeout) - but Mocha_InitLibrary/FSAddClient/Mocha_UnlockFSClient
+    // have no such escape hatch, and a genuinely blocking OSJoinThread()
+    // here turned out to deadlock for real: if the thread is stuck inside
+    // one of those, waiting on an IOSU-level resource that only frees up
+    // once this process finishes exiting, then this call can't return
+    // until the thread exits, the thread can't get past its blocked call
+    // until this process finishes exiting, and the process can't finish
+    // exiting until this returns. Bound the wait instead - see
+    // waitForThreadToExit's own comment.
     g_giveUp.store(true, std::memory_order_release);
     if (g_threadCreated.load(std::memory_order_acquire)) {
-        int result = 0;
-        OSJoinThread(&sCatalogThread, &result);
+        if (!waitForThreadToExit(3000)) {
+            DEBUG_FUNCTION_LINE("Inkay/Karaoke: shutdown timed out waiting for the catalog thread");
+        }
     }
 }
 
