@@ -17,6 +17,7 @@
 #include "config.h"
 #include "utils/logger.h"
 
+#include <cstdio>
 #include <coreinit/filesystem.h>
 #include <mocha/mocha.h>
 
@@ -27,17 +28,27 @@
 // Native Cafe OS paths, not through a Mocha_MountFS devoptab: content partitions are
 // mounted read-only even to their own owning title, so writing here needs a FSClient
 // that Mocha_UnlockFSClient() has granted full permissions to.
+//
+// TVii's low title ID is region-specific (confirmed against RosePatcher's own
+// VINO_TITLE_ID_JP/US/EU constants): 1001300a (JP), 1001310a (US), 1001320a (EU).
+// We don't know which region a given console is, so just try all three - opening a
+// region folder that doesn't exist on this console fails fast and harmlessly
+// (FS_ERROR_FLAG_ALL below keeps that from popping an OS error screen).
+constexpr const char *tvii_region_dirs[] = {
+        "1001300a", // JP
+        "1001310a", // US
+        "1001320a", // EU
+};
+
 struct tvii_rootca_file {
-    const char *path;
+    const char *filename;
     const uint8_t *stock_der;
     size_t stock_der_size;
 };
 
 constexpr tvii_rootca_file tvii_rootca_files[] = {
-        {"/vol/storage_mlc01/sys/title/00050030/1001320a/content/rootca/Go_Daddy_Class_2_Certification_Authority.der",
-         godaddy_class2_root_der, godaddy_class2_root_der_size},
-        {"/vol/storage_mlc01/sys/title/00050030/1001320a/content/rootca/Go_Daddy_Root_Certificate_Authority_-_G2.der",
-         godaddy_g2_root_der, godaddy_g2_root_der_size},
+        {"Go_Daddy_Class_2_Certification_Authority.der", godaddy_class2_root_der, godaddy_class2_root_der_size},
+        {"Go_Daddy_Root_Certificate_Authority_-_G2.der", godaddy_g2_root_der, godaddy_g2_root_der_size},
 };
 
 void tviiApplyRootCAOverlay() {
@@ -69,25 +80,31 @@ void tviiApplyRootCAOverlay() {
         return;
     }
 
-    for (const auto &file: tvii_rootca_files) {
-        const uint8_t *data = Config::tvii_use_custom_ca ? tvii_rootca_der : file.stock_der;
-        size_t size = Config::tvii_use_custom_ca ? tvii_rootca_der_size : file.stock_der_size;
+    for (const auto *region_dir: tvii_region_dirs) {
+        for (const auto &file: tvii_rootca_files) {
+            char path[256];
+            snprintf(path, sizeof(path), "/vol/storage_mlc01/sys/title/00050030/%s/content/rootca/%s", region_dir, file.filename);
 
-        FSFileHandle handle;
-        auto open_res = FSOpenFile(&client, &block, file.path, "w", &handle, FS_ERROR_FLAG_ALL);
-        if (open_res != FS_STATUS_OK) {
-            DEBUG_FUNCTION_LINE("Inkay/TVii: failed to open %s (%d)", file.path, open_res);
-            continue;
+            const uint8_t *data = Config::tvii_use_custom_ca ? tvii_rootca_der : file.stock_der;
+            size_t size = Config::tvii_use_custom_ca ? tvii_rootca_der_size : file.stock_der_size;
+
+            FSFileHandle handle;
+            auto open_res = FSOpenFile(&client, &block, path, "w", &handle, FS_ERROR_FLAG_ALL);
+            if (open_res != FS_STATUS_OK) {
+                // Expected for the regions this console's TVii isn't installed under.
+                DEBUG_FUNCTION_LINE_VERBOSE("Inkay/TVii: failed to open %s (%d)", path, open_res);
+                continue;
+            }
+
+            auto write_res = FSWriteFile(&client, &block, (uint8_t *) data, 1, size, handle, 0, FS_ERROR_FLAG_ALL);
+            if (write_res != (FSStatus) size) {
+                DEBUG_FUNCTION_LINE("Inkay/TVii: failed to write %s (%d)", path, write_res);
+            } else {
+                DEBUG_FUNCTION_LINE_VERBOSE("Inkay/TVii: overwrote %s with %s CA", path, Config::tvii_use_custom_ca ? "custom" : "stock");
+            }
+
+            FSCloseFile(&client, &block, handle, FS_ERROR_FLAG_ALL);
         }
-
-        auto write_res = FSWriteFile(&client, &block, (uint8_t *) data, 1, size, handle, 0, FS_ERROR_FLAG_ALL);
-        if (write_res != (FSStatus) size) {
-            DEBUG_FUNCTION_LINE("Inkay/TVii: failed to write %s (%d)", file.path, write_res);
-        } else {
-            DEBUG_FUNCTION_LINE_VERBOSE("Inkay/TVii: overwrote %s with %s CA", file.path, Config::tvii_use_custom_ca ? "custom" : "stock");
-        }
-
-        FSCloseFile(&client, &block, handle, FS_ERROR_FLAG_ALL);
     }
 
     FSDelClient(&client, FS_ERROR_FLAG_ALL);
