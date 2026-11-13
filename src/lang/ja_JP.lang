@@ -12,4 +12,3 @@
 ,.multiplayer_port_display="マルチプレイに UDPポート %hu を使用します"
 ,.module_not_found="Pretendo パッチに失敗しました。Aroma Updaterを使用して解決してみてください。(686-1001 Module missing)"
 ,.module_init_not_found="Pretendo パッチに失敗しました。Aroma Updaterを使用して解決してみてください。(686-1002 Module init)"
-,.karaoke_catalog_updated="Wii Karaoke U：曲カタログを更新しました"
