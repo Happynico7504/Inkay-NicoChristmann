@@ -17,7 +17,6 @@
 #include "wii_karaoke_catalogfix.h"
 #include "utils/logger.h"
 
-#include <kernel/kernel.h>
 #include <coreinit/cache.h>
 #include <coreinit/dynload.h>
 #include <coreinit/memorymap.h>
@@ -56,9 +55,37 @@ constexpr uint32_t PATCH2_INSTR = 0x38600001u; // li r3,1
 // title's own WUPS callback doesn't necessarily run on the same core that
 // executes the patched code, so the write can be invisible there. Going
 // through KernelCopyData propagates the write correctly to every core.
+//
+// Deliberately NOT statically linked (-lkernel/<kernel/kernel.h>, how an
+// earlier version of this file did it) - back to the original standalone
+// wiikaraoke-catalogfix plugin's own approach of dynloading
+// "homebrew_kernel" and resolving KernelCopyData explicitly, checking each
+// step. A statically-linked wut kernel import still ultimately resolves
+// through the same kind of OSDynLoad machinery underneath, just without
+// this call site ever seeing whether that resolution actually succeeded -
+// if it silently failed and left a null/garbage function pointer, calling
+// through it would jump into invalid code with no exception Aroma's own
+// handler could ever catch, matching a crash severe enough to show
+// nothing at all far better than anything about the patch's own address
+// computation (already separately verified correct).
+typedef void (*KernelCopyData_fn)(uint32_t dst, uint32_t src, uint32_t len);
+
 bool kernelCopyToGame(uint32_t targetEffectiveAddr, const void *srcBuf, uint32_t len) {
+    OSDynLoad_Module module;
+    OSDynLoad_Error acq = OSDynLoad_Acquire("homebrew_kernel", &module);
+    if (acq != 0) {
+        DEBUG_FUNCTION_LINE("Inkay/KaraokeFix: OSDynLoad_Acquire(homebrew_kernel) failed: %d", (int) acq);
+        return false;
+    }
+    KernelCopyData_fn copyFn = nullptr;
+    OSDynLoad_FindExport(module, OS_DYNLOAD_EXPORT_FUNC, "KernelCopyData", (void **) &copyFn);
+    if (!copyFn) {
+        DEBUG_FUNCTION_LINE("Inkay/KaraokeFix: KernelCopyData export not found");
+        return false;
+    }
+
     DCStoreRange((void *) srcBuf, len);
-    KernelCopyData(OSEffectiveToPhysical(targetEffectiveAddr), OSEffectiveToPhysical((uint32_t) (uintptr_t) srcBuf), len);
+    copyFn(OSEffectiveToPhysical(targetEffectiveAddr), OSEffectiveToPhysical((uint32_t) (uintptr_t) srcBuf), len);
     DCStoreRange((void *) (uintptr_t) targetEffectiveAddr, len);
     ICInvalidateRange((void *) (uintptr_t) targetEffectiveAddr, len);
     return true;
