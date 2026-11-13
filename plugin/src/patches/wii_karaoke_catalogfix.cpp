@@ -105,20 +105,30 @@ constexpr uint32_t PATCH2_INSTR = 0x38600001u; // li r3,1
 // caused anything to actually persist. Left here as a note so a future
 // attempt doesn't re-discover the same wrong lead.
 
-// Fourth patch: FUN_02221ffc deletes data_base01-04.bin and data_fb.bin,
-// then reads the disc's own bundled content/global/tsv/<lang>/wiiudb.dat
-// and song_begin_db.dat straight into a fresh buffer and writes that
-// straight back out - i.e. it's a disc-content factory-reload, with no
-// reference anywhere in its body to any downloaded/merged catalog data.
-// Confirmed empirically (direct FTP byte compare) that data_base01.bin's
-// content could be made byte-identical to the disc's own de/wiiudb.dat,
-// consistent with this function (or an equivalent) being what undoes any
-// custom/downloaded content. No-opping its entry (`blr`) is what makes
-// "nothing gets overwritten anyway" true - this runs regardless of
-// whether the catalog came from Inkay's own boot-time NAND write or from
-// a successful online update.
-constexpr uint32_t PATCH4_VA = 0x02221ffc;    // FUN_02221ffc's entry
-constexpr uint32_t PATCH4_INSTR = 0x4e800020u; // blr
+// Fourth patch - DISABLED, see below. FUN_02221ffc deletes
+// data_base01-04.bin and data_fb.bin, then reads the disc's own bundled
+// content/global/tsv/<lang>/wiiudb.dat and song_begin_db.dat straight into
+// a fresh buffer and writes that straight back out - i.e. it's a
+// disc-content factory-reload, with no reference anywhere in its body to
+// any downloaded/merged catalog data. Confirmed empirically (direct FTP
+// byte compare) that data_base01.bin's content could be made byte-identical
+// to the disc's own de/wiiudb.dat, consistent with this function (or an
+// equivalent) being what undoes any custom/downloaded content.
+//
+// Disabled 2026-11-13: the standalone `wiikaraoke-installer` app now writes
+// the catalog directly into the save data entirely outside the game's own
+// process/boot sequence (no online update ever runs for it to undo). With
+// this no-op active, the game hung on its own boot screen when launched
+// against a catalog written that way - leading theory is that the game's
+// boot sequence also relies on FUN_02221ffc running for some
+// normalization/integrity step the first time it sees unfamiliar catalog
+// content, which no-opping it entirely also skips, not just the disc-reload
+// side effect. Only patches 1 and 2 (the race fix and the forced-success
+// reply check) are still needed/applied - those two alone are what the
+// user asked to keep, to let the game's own online-update sequence (run
+// from inside its own process, when relevant) believe it completed
+// successfully, without this patch's broader, apparently load-bearing,
+// side effects.
 
 extern "C" void wkcf_cave();
 extern "C" uint32_t wkcf_vtable_const;
@@ -146,8 +156,6 @@ uint32_t g_watchTarget = 0;
 uint32_t g_watchExpected[4];
 uint32_t g_watch2Target = 0;
 uint32_t g_watch2Expected = 0;
-uint32_t g_watch4Target = 0;
-uint32_t g_watch4Expected = 0;
 
 bool applyPatchIfTitleMatches() {
     if (OSGetTitleID() != KARAOKE_EU) {
@@ -199,22 +207,15 @@ bool applyPatchIfTitleMatches() {
         uint32_t patch2Instr = PATCH2_INSTR;
         if (!kernelCopyToGame(target2, &patch2Instr, sizeof(patch2Instr))) return false;
 
-        uint32_t target4 = PATCH4_VA + textDelta;
-        if (!OSIsAddressValid(target4) || !OSIsAddressValid(target4 + 3)) {
-            DEBUG_FUNCTION_LINE("Inkay/KaraokeFix: patch4 target address invalid");
-            return false;
-        }
-        uint32_t patch4Instr = PATCH4_INSTR;
-        if (!kernelCopyToGame(target4, &patch4Instr, sizeof(patch4Instr))) return false;
+        // Patch 4 deliberately NOT applied anymore - see its own comment
+        // above for why.
 
-        DEBUG_FUNCTION_LINE("Inkay/KaraokeFix: all patches applied");
+        DEBUG_FUNCTION_LINE("Inkay/KaraokeFix: patches 1 and 2 applied");
 
         g_watchTarget = target;
         memcpy(g_watchExpected, farBranch, sizeof(farBranch));
         g_watch2Target = target2;
         g_watch2Expected = patch2Instr;
-        g_watch4Target = target4;
-        g_watch4Expected = patch4Instr;
         g_watchActive = true;
         return true;
     }
@@ -294,12 +295,6 @@ int patchThreadMain(int, const char **) {
             kernelCopyToGame(g_watch2Target, &v, sizeof(v));
         }
 
-        volatile uint32_t *p4 = (volatile uint32_t *) (uintptr_t) g_watch4Target;
-        if (*p4 != g_watch4Expected) {
-            DEBUG_FUNCTION_LINE("Inkay/KaraokeFix: patch 4 was reverted, reapplying");
-            uint32_t v = g_watch4Expected;
-            kernelCopyToGame(g_watch4Target, &v, sizeof(v));
-        }
     }
     return 0;
 }

@@ -22,11 +22,9 @@
 // against our server, instead of either being skipped or failing midway.
 // The game actually needs this full sequence to succeed - it's what lets
 // songs play - so these patches make it succeed rather than trying to
-// avoid it; nothing gets overwritten in a way that matters, since patch 4
-// (the disc-reload no-op) stops the one thing that could undo custom
-// content, and PATCH3A/3B's "every invocation re-persists to NAND" theory
-// was retracted (see the .cpp) - the persisted data is already correct
-// once the sequence succeeds.
+// avoid it. Only patches 1 (the race fix) and 2 (forced reply-verification
+// success) are applied - patch 4 (the disc-reload no-op) and PATCH3A/3B
+// (retracted) are both disabled/removed, see the .cpp for why.
 //
 // Call from ON_APPLICATION_START (not INITIALIZE_PLUGIN): these are direct
 // instruction patches into the running title's own RPX, which only exists
