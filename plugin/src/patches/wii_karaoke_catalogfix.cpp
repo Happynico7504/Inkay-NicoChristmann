@@ -54,23 +54,33 @@ bool kernelCopyToGame(uint32_t targetEffectiveAddr, const void *srcBuf, uint32_t
 constexpr uint32_t ELF_URL_VA = 0x1001D0E4;
 constexpr char URL[] = "https://ssl.wahp.wah.wup.app.nintendo.net/";
 
-// First bug: a global network-command-manager housekeeping pass
-// (FUN_02127264) runs every frame and, as part of routine list bookkeeping
-// unrelated to any individual download's own progress, unconditionally
-// calls Cancel() (vtable slot +0x34) on any cGameNetCmd*-family request
-// object the first time it gets mirrored into its tracking list -
-// including the GD0001/GF0001 catalog-database-update requests,
+// First bug - DISABLED, see below for why. A global network-command-manager
+// housekeeping pass (FUN_02127264) runs every frame and, as part of routine
+// list bookkeeping unrelated to any individual download's own progress,
+// unconditionally calls Cancel() (vtable slot +0x34) on any cGameNetCmd*-
+// family request object the first time it gets mirrored into its tracking
+// list - including the GD0001/GF0001 catalog-database-update requests,
 // mid-download. Confirmed via decompile + live hardware memory scan (the
 // request's own "done" flag reads true while its own byte-count field is
 // still far below the real file size). This is a race, not a timeout or
 // size check, so it can't be worked around from the server side.
 //
-// The fix: NOP out the 5 instructions that load the Cancel() vtable slot
-// and call it (0x021276e8-0x021276f8 in the EU binary's own address
-// space), right after the FUN_021271e0 call that adds the request to the
-// tracking list - this keeps that bookkeeping intact and only removes the
-// harmful premature-cancel side effect. Nothing after that call site reads
-// the registers it used, so this is safe.
+// The fix (when applied): NOP out the 5 instructions that load the
+// Cancel() vtable slot and call it (0x021276e8-0x021276f8 in the EU
+// binary's own address space), right after the FUN_021271e0 call that adds
+// the request to the tracking list - this keeps that bookkeeping intact
+// and only removes the harmful premature-cancel side effect. Nothing after
+// that call site reads the registers it used, so this is safe in
+// isolation.
+//
+// Disabled 2026-11-13, alongside patch 4, as a further isolation step:
+// the game still hung on boot with only patches 1+2 active (catalog
+// written directly by wiikaraoke-installer, patch 4 already removed) even
+// though this same patch 1 + patch 2 combination was previously confirmed
+// working against this exact server through the game's OWN online-update
+// flow. The one new variable is the catalog now being pre-written outside
+// that flow entirely - disabling patch 1 too (leaving only patch 2) is the
+// next isolation step, not a confirmed-safe permanent change.
 constexpr uint32_t PATCH_VA = 0x021276e8;     // first of the 5 original instructions
 constexpr uint32_t RETURN_VA = 0x021276fc;    // untouched loop-continuation code
 constexpr uint32_t VTABLE_VA = 0x1001cd24;    // cGameNetCmdGetData's own final vtable
@@ -152,8 +162,6 @@ std::atomic<bool> g_threadCreated{false};
 // wait instead of ever blocking on OSJoinThread indefinitely (see
 // karaokeCatalogFixShutdown's own comment).
 std::atomic<bool> g_threadRunning{false};
-uint32_t g_watchTarget = 0;
-uint32_t g_watchExpected[4];
 uint32_t g_watch2Target = 0;
 uint32_t g_watch2Expected = 0;
 
@@ -179,25 +187,10 @@ bool applyPatchIfTitleMatches() {
         if (!OSIsAddressValid(at) || memcmp((void *) at, URL, sizeof(URL) - 1) != 0) continue;
 
         uint32_t textDelta = info[i].textAddr - 0x02000000;
-        uint32_t dataDelta = info[i].readAddr - 0x10000000; // .rodata/.data share this delta
-        uint32_t target = PATCH_VA + textDelta;
-        if (!OSIsAddressValid(target) || !OSIsAddressValid(target + 15)) {
-            DEBUG_FUNCTION_LINE("Inkay/KaraokeFix: target address range invalid");
-            return false;
-        }
 
-        wkcf_vtable_const = VTABLE_VA + dataDelta;
-        wkcf_return_addr = RETURN_VA + textDelta;
-
-        uint32_t caveAddr = (uint32_t) (uintptr_t) &wkcf_cave;
-        uint32_t farBranch[4] = {
-                0x3C000000u | ((caveAddr >> 16) & 0xFFFFu), // lis   r0, caveAddr@h
-                0x60000000u | (caveAddr & 0xFFFFu),         // ori   r0, r0, caveAddr@l
-                0x7C0903A6u,                                 // mtctr r0
-                0x4E800420u,                                 // bctr
-        };
-
-        if (!kernelCopyToGame(target, farBranch, sizeof(farBranch))) return false;
+        // Patch 1 deliberately NOT applied anymore either - see its own
+        // comment above for why (isolation test, not yet confirmed as the
+        // actual fix).
 
         uint32_t target2 = PATCH2_VA + textDelta;
         if (!OSIsAddressValid(target2) || !OSIsAddressValid(target2 + 3)) {
@@ -207,13 +200,11 @@ bool applyPatchIfTitleMatches() {
         uint32_t patch2Instr = PATCH2_INSTR;
         if (!kernelCopyToGame(target2, &patch2Instr, sizeof(patch2Instr))) return false;
 
-        // Patch 4 deliberately NOT applied anymore - see its own comment
-        // above for why.
+        // Patch 4 deliberately NOT applied anymore either - see its own
+        // comment above for why.
 
-        DEBUG_FUNCTION_LINE("Inkay/KaraokeFix: patches 1 and 2 applied");
+        DEBUG_FUNCTION_LINE("Inkay/KaraokeFix: patch 2 applied");
 
-        g_watchTarget = target;
-        memcpy(g_watchExpected, farBranch, sizeof(farBranch));
         g_watch2Target = target2;
         g_watch2Expected = patch2Instr;
         g_watchActive = true;
@@ -278,15 +269,6 @@ int patchThreadMain(int, const char **) {
     // original RPX, reassert the patch and log it so we know this happened.
     while (g_watchActive && !g_shouldExit.load(std::memory_order_acquire)) {
         if (!sleepOrExit(2000)) break;
-        volatile uint32_t *p = (volatile uint32_t *) (uintptr_t) g_watchTarget;
-        bool reverted = false;
-        for (int w = 0; w < 4; w++) {
-            if (p[w] != g_watchExpected[w]) { reverted = true; break; }
-        }
-        if (reverted) {
-            DEBUG_FUNCTION_LINE("Inkay/KaraokeFix: patch 1 was reverted, reapplying");
-            kernelCopyToGame(g_watchTarget, g_watchExpected, sizeof(g_watchExpected));
-        }
 
         volatile uint32_t *p2 = (volatile uint32_t *) (uintptr_t) g_watch2Target;
         if (*p2 != g_watch2Expected) {
