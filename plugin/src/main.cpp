@@ -24,7 +24,6 @@
 #include "module.h"
 #include "inkay_config.h"
 #include "patches/tvii_applet.h"
-#include "patches/wii_karaoke_catalogfix.h"
 
 /**
     Mandatory plugin information.
@@ -60,12 +59,6 @@ INITIALIZE_PLUGIN() {
 }
 
 DEINITIALIZE_PLUGIN() {
-    // Must actually wait for this thread to finish, not just signal it to
-    // stop: the plugin's own code/memory can be unloaded right after this
-    // returns, which a still-running thread would then be executing out
-    // from under.
-    karaokeCatalogFixShutdown();
-
     Inkay_Finalize();
     NotificationModule_DeInitLibrary();
 
@@ -74,8 +67,6 @@ DEINITIALIZE_PLUGIN() {
 }
 
 ON_APPLICATION_START() {
-    karaokeApplyCatalogFix();
-
     // Tell the module the plugin is running!
     Inkay_SetPluginRunning();
 }
