@@ -126,7 +126,28 @@ bool applyPatchIfTitleMatches() {
         uint32_t patch2Instr = PATCH2_INSTR;
         if (!kernelCopyToGame(target2, &patch2Instr, sizeof(patch2Instr))) return false;
 
-        DEBUG_FUNCTION_LINE("Inkay/KaraokeFix: patch 2 applied");
+        // Read the SAME effective address back, same as the pre-write
+        // check above. This is a different question from that one: the
+        // pre-write check proved target2 itself is right; this proves
+        // KernelCopyData's own OSEffectiveToPhysical() translation of that
+        // exact effective address actually wrote to the physical frame it
+        // maps to. Those are two separate translations - a stale/wrong one
+        // on the kernel side would still read back wrong here even though
+        // target2 was confirmed correct a moment ago, and would mean the
+        // write silently landed somewhere else in physical memory instead
+        // (consistent with a crash severe enough that Aroma's own panic
+        // screen never even gets a chance to show - that only fires for a
+        // fault Aroma's own exception handler catches, not corruption deep
+        // enough to take out IOSU/kernel state first).
+        uint32_t verifyInstr = *(volatile uint32_t *) (uintptr_t) target2;
+        if (verifyInstr != PATCH2_INSTR) {
+            DEBUG_FUNCTION_LINE("Inkay/KaraokeFix: patch2 write didn't take effect at its own effective "
+                                 "address (read back %08x, expected %08x after writing) - the physical "
+                                 "write target may differ from what this address translation implies",
+                                 (unsigned) verifyInstr, (unsigned) PATCH2_INSTR);
+        } else {
+            DEBUG_FUNCTION_LINE("Inkay/KaraokeFix: patch 2 applied and verified");
+        }
         return true;
     }
     return false;
