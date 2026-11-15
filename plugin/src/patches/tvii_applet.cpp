@@ -85,14 +85,22 @@ void tviiApplyRootCAOverlay() {
             char path[256];
             snprintf(path, sizeof(path), "/vol/storage_mlc01/sys/title/00050030/%s/content/rootca/%s", region_dir, file.filename);
 
+            // Check the file actually exists before touching it: this console's TVii
+            // is only installed under one of the three region folders, and opening a
+            // path that isn't there for the other two blocked boot entirely rather
+            // than just failing quietly, despite FS_ERROR_FLAG_ALL.
+            FSStat stat;
+            if (FSGetStat(&client, &block, path, &stat, FS_ERROR_FLAG_ALL) != FS_STATUS_OK) {
+                continue;
+            }
+
             const uint8_t *data = Config::tvii_use_custom_ca ? tvii_rootca_der : file.stock_der;
             size_t size = Config::tvii_use_custom_ca ? tvii_rootca_der_size : file.stock_der_size;
 
             FSFileHandle handle;
             auto open_res = FSOpenFile(&client, &block, path, "w", &handle, FS_ERROR_FLAG_ALL);
             if (open_res != FS_STATUS_OK) {
-                // Expected for the regions this console's TVii isn't installed under.
-                DEBUG_FUNCTION_LINE_VERBOSE("Inkay/TVii: failed to open %s (%d)", path, open_res);
+                DEBUG_FUNCTION_LINE("Inkay/TVii: failed to open %s (%d)", path, open_res);
                 continue;
             }
 
