@@ -19,6 +19,7 @@
 
 #include <cstdio>
 #include <coreinit/filesystem.h>
+#include <coreinit/mcp.h>
 #include <mocha/mocha.h>
 
 #include "tvii_rootca_der.h"          // generated at buildtime from data/tvii_rootca.der (our own CA)
@@ -31,14 +32,36 @@
 //
 // TVii's low title ID is region-specific (confirmed against RosePatcher's own
 // VINO_TITLE_ID_JP/US/EU constants): 1001300a (JP), 1001310a (US), 1001320a (EU).
-// We don't know which region a given console is, so just try all three - opening a
-// region folder that doesn't exist on this console fails fast and harmlessly
-// (FS_ERROR_FLAG_ALL below keeps that from popping an OS error screen).
-constexpr const char *tvii_region_dirs[] = {
-        "1001300a", // JP
-        "1001310a", // US
-        "1001320a", // EU
-};
+// v3.0.0-71 tried all three region paths every boot regardless of console region;
+// that bootlooped non-EU consoles even after v3.0.0-75 added an FSGetStat check
+// before each open (confirmed on hardware, both still broke boot - the repeated
+// attempts themselves were the problem, not just missing-path opens). So detect the
+// console's actual region via MCP_GetSysProdSettings and touch only that one path,
+// the same single-attempt shape v3.0.0-70 (EU-only, never reported to break boot)
+// had, instead of looping.
+static const char *tviiRegionDir() {
+    MCPError mcp = MCP_Open();
+    if (mcp < 0) {
+        DEBUG_FUNCTION_LINE("Inkay/TVii: MCP_Open failed (%d)", mcp);
+        return nullptr;
+    }
+
+    MCPSysProdSettings settings;
+    auto res = MCP_GetSysProdSettings(mcp, &settings);
+    MCP_Close(mcp);
+
+    if (res != 0) {
+        DEBUG_FUNCTION_LINE("Inkay/TVii: MCP_GetSysProdSettings failed (%d)", res);
+        return nullptr;
+    }
+
+    if (settings.product_area & MCP_REGION_JAPAN) return "1001300a";
+    if (settings.product_area & MCP_REGION_USA) return "1001310a";
+    if (settings.product_area & MCP_REGION_EUROPE) return "1001320a";
+
+    DEBUG_FUNCTION_LINE("Inkay/TVii: unrecognized product_area %d", (int) settings.product_area);
+    return nullptr;
+}
 
 struct tvii_rootca_file {
     const char *filename;
@@ -53,6 +76,12 @@ constexpr tvii_rootca_file tvii_rootca_files[] = {
 
 void tviiApplyRootCAOverlay() {
     if (!Config::connect_to_network) {
+        return;
+    }
+
+    const char *region_dir = tviiRegionDir();
+    if (!region_dir) {
+        DEBUG_FUNCTION_LINE("Inkay/TVii: couldn't determine console region, not touching root CAs");
         return;
     }
 
@@ -80,39 +109,28 @@ void tviiApplyRootCAOverlay() {
         return;
     }
 
-    for (const auto *region_dir: tvii_region_dirs) {
-        for (const auto &file: tvii_rootca_files) {
-            char path[256];
-            snprintf(path, sizeof(path), "/vol/storage_mlc01/sys/title/00050030/%s/content/rootca/%s", region_dir, file.filename);
+    for (const auto &file: tvii_rootca_files) {
+        char path[256];
+        snprintf(path, sizeof(path), "/vol/storage_mlc01/sys/title/00050030/%s/content/rootca/%s", region_dir, file.filename);
 
-            // Check the file actually exists before touching it: this console's TVii
-            // is only installed under one of the three region folders, and opening a
-            // path that isn't there for the other two blocked boot entirely rather
-            // than just failing quietly, despite FS_ERROR_FLAG_ALL.
-            FSStat stat;
-            if (FSGetStat(&client, &block, path, &stat, FS_ERROR_FLAG_ALL) != FS_STATUS_OK) {
-                continue;
-            }
+        const uint8_t *data = Config::tvii_use_custom_ca ? tvii_rootca_der : file.stock_der;
+        size_t size = Config::tvii_use_custom_ca ? tvii_rootca_der_size : file.stock_der_size;
 
-            const uint8_t *data = Config::tvii_use_custom_ca ? tvii_rootca_der : file.stock_der;
-            size_t size = Config::tvii_use_custom_ca ? tvii_rootca_der_size : file.stock_der_size;
-
-            FSFileHandle handle;
-            auto open_res = FSOpenFile(&client, &block, path, "w", &handle, FS_ERROR_FLAG_ALL);
-            if (open_res != FS_STATUS_OK) {
-                DEBUG_FUNCTION_LINE("Inkay/TVii: failed to open %s (%d)", path, open_res);
-                continue;
-            }
-
-            auto write_res = FSWriteFile(&client, &block, (uint8_t *) data, 1, size, handle, 0, FS_ERROR_FLAG_ALL);
-            if (write_res != (FSStatus) size) {
-                DEBUG_FUNCTION_LINE("Inkay/TVii: failed to write %s (%d)", path, write_res);
-            } else {
-                DEBUG_FUNCTION_LINE_VERBOSE("Inkay/TVii: overwrote %s with %s CA", path, Config::tvii_use_custom_ca ? "custom" : "stock");
-            }
-
-            FSCloseFile(&client, &block, handle, FS_ERROR_FLAG_ALL);
+        FSFileHandle handle;
+        auto open_res = FSOpenFile(&client, &block, path, "w", &handle, FS_ERROR_FLAG_ALL);
+        if (open_res != FS_STATUS_OK) {
+            DEBUG_FUNCTION_LINE("Inkay/TVii: failed to open %s (%d)", path, open_res);
+            continue;
         }
+
+        auto write_res = FSWriteFile(&client, &block, (uint8_t *) data, 1, size, handle, 0, FS_ERROR_FLAG_ALL);
+        if (write_res != (FSStatus) size) {
+            DEBUG_FUNCTION_LINE("Inkay/TVii: failed to write %s (%d)", path, write_res);
+        } else {
+            DEBUG_FUNCTION_LINE_VERBOSE("Inkay/TVii: overwrote %s with %s CA", path, Config::tvii_use_custom_ca ? "custom" : "stock");
+        }
+
+        FSCloseFile(&client, &block, handle, FS_ERROR_FLAG_ALL);
     }
 
     FSDelClient(&client, FS_ERROR_FLAG_ALL);
