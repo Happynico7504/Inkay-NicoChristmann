@@ -59,6 +59,7 @@ WUMS_USE_WUT_DEVOPTAB();
 #include <function_patcher/function_patching.h>
 #include "patches/account_settings.h"
 #include "patches/wiistreetu_ca.h"
+#include "patches/wiistreetu_tlb.h"
 #include "patches/wii_karaoke.h"
 #include "patches/dns_hooks.h"
 #include "patches/eshop_applet.h"
@@ -191,6 +192,7 @@ static void Inkay_Initialize(bool apply_patches, bool show_startup_toast, inkay_
         patchOlvApplet();
         patchAccountSettings();
         patchWiiStreetU();
+        patchWiiStreetUTlb();
         install_matchmaking_patches();
     }
     else
@@ -226,6 +228,7 @@ WUMS_DEINITIALIZE()
     unpatchOlvApplet();
     unpatchAccountSettings();
     unpatchWiiStreetU();
+    unpatchWiiStreetUTlb();
     remove_matchmaking_patches();
 
     Mocha_UnmountFS("storage_mlc");
