@@ -1,0 +1,126 @@
+/*  Copyright 2026 NicoChristmann
+
+    Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby
+    granted, provided that the above copyright notice and this permission notice appear in all copies.
+
+    THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL
+    IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+    INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER
+    IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+    PERFORMANCE OF THIS SOFTWARE.
+
+    Wii Street U validates whx.cdn.nintendo.net's TLS cert against its own
+    bundled file:///vol/content/app/certificate/ca-bundle.pem, independent of
+    whatever CA Inkay's other patches (account_settings.cpp, olv_applet, ...)
+    get trusted into nn::olv/nn::act's shared trust store - confirmed live:
+    the console rejected our whx.cdn.nintendo.net cert with "unknown
+    certificate authority" over a connection that otherwise proved
+    dns_hooks.cpp's redirect worked (right SNI, right IP, legacy Wii U TLS
+    fingerprint). This mirrors account_settings.cpp's rootca.pem swap, but for
+    a 3-cert bundle instead of a single root: data/wiistreetu_ca_bundle.pem
+    (-> wiistreetu_ca_bundle_pem[] below) is the original bundle's Nintendo
+    Class 2 CA G3 cert plus our own CA, with the obsolete Equifax/Entrust
+    roots dropped to make room, padded with a comment line to the EXACT byte
+    length of the original 4562-byte file. That padding matters: nothing here
+    patches FSGetStatFile, so the game allocates its read buffer from the
+    REAL file's stat size - a larger replacement would just get truncated by
+    FSReadFile_wiiStreetU's own `size * count` bound below. */
+
+#include "config.h"
+#include "utils/logger.h"
+
+#include <function_patcher/function_patching.h>
+
+#include <coreinit/filesystem.h>
+#include <coreinit/title.h>
+
+#include <vector>
+#include <optional>
+
+#include "wiistreetu_ca_bundle_pem.h" // generated at buildtime from data/wiistreetu_ca_bundle.pem
+
+#define WII_STREET_U_TID_J 0x000500001012D300
+#define WII_STREET_U_TID_E 0x0005000010132000
+#define WII_STREET_U_TID_P 0x0005000010132100
+
+static bool isWiiStreetUTitle() {
+    return (OSGetTitleID() != 0 && (
+        OSGetTitleID() == WII_STREET_U_TID_J ||
+        OSGetTitleID() == WII_STREET_U_TID_E ||
+        OSGetTitleID() == WII_STREET_U_TID_P
+        ));
+}
+
+static std::optional<FSFileHandle> wiistreetu_ca_bundle_handle{};
+std::vector<PatchedFunctionHandle> wiistreetu_ca_patches;
+
+DECL_FUNCTION(int, FSOpenFile_wiiStreetU, FSClient *client, FSCmdBlock *block, char *path, const char *mode, uint32_t *handle,
+              int error) {
+    if (!isWiiStreetUTitle()) {
+        return real_FSOpenFile_wiiStreetU(client, block, path, mode, handle, error);
+    }
+
+    if (!Config::connect_to_network) {
+        DEBUG_FUNCTION_LINE_VERBOSE("Inkay: Wii Street U CA patches skipped.");
+        return real_FSOpenFile_wiiStreetU(client, block, path, mode, handle, error);
+    }
+
+    if (strcmp("vol/content/app/certificate/ca-bundle.pem", path) == 0) {
+        int ret = real_FSOpenFile_wiiStreetU(client, block, path, mode, handle, error);
+        wiistreetu_ca_bundle_handle = *handle;
+        DEBUG_FUNCTION_LINE_VERBOSE("Inkay: Found Wii Street U ca-bundle.pem, replacing...");
+        return ret;
+    }
+    return real_FSOpenFile_wiiStreetU(client, block, path, mode, handle, error);
+}
+
+DECL_FUNCTION(FSStatus, FSReadFile_wiiStreetU, FSClient *client, FSCmdBlock *block, uint8_t *buffer, uint32_t size, uint32_t count,
+              FSFileHandle handle, uint32_t unk1, uint32_t flags) {
+    if (!isWiiStreetUTitle()) {
+        return real_FSReadFile_wiiStreetU(client, block, buffer, size, count, handle, unk1, flags);
+    }
+    if (size != 1) {
+        DEBUG_FUNCTION_LINE("Inkay: Wii Street U ca-bundle.pem replacement failed!");
+    }
+
+    if (wiistreetu_ca_bundle_handle && *wiistreetu_ca_bundle_handle == handle) {
+        strlcpy((char *) buffer, (const char *) wiistreetu_ca_bundle_pem, size * count);
+        return (FSStatus) count;
+    }
+    return real_FSReadFile_wiiStreetU(client, block, buffer, size, count, handle, unk1, flags);
+}
+
+DECL_FUNCTION(FSStatus, FSCloseFile_wiiStreetU, FSClient *client, FSCmdBlock *block, FSFileHandle handle, FSErrorFlag errorMask) {
+    if (!isWiiStreetUTitle()) {
+        return real_FSCloseFile_wiiStreetU(client, block, handle, errorMask);
+    }
+    if (handle == wiistreetu_ca_bundle_handle) {
+        wiistreetu_ca_bundle_handle.reset();
+    }
+    return real_FSCloseFile_wiiStreetU(client, block, handle, errorMask);
+}
+
+bool patchWiiStreetU() {
+    wiistreetu_ca_patches.reserve(3);
+
+    auto add_patch = [](function_replacement_data_t repl, const char *name) {
+        PatchedFunctionHandle handle = 0;
+        if (FunctionPatcher_AddFunctionPatch(&repl, &handle, nullptr) != FUNCTION_PATCHER_RESULT_SUCCESS) {
+            DEBUG_FUNCTION_LINE("Inkay/WiiStreetU: Failed to patch %s!", name);
+        }
+        wiistreetu_ca_patches.push_back(handle);
+    };
+
+    add_patch(REPLACE_FUNCTION_FOR_PROCESS(FSOpenFile_wiiStreetU, LIBRARY_COREINIT, FSOpenFile, FP_TARGET_PROCESS_GAME), "FSOpenFile_wiiStreetU");
+    add_patch(REPLACE_FUNCTION_FOR_PROCESS(FSReadFile_wiiStreetU, LIBRARY_COREINIT, FSReadFile, FP_TARGET_PROCESS_GAME), "FSReadFile_wiiStreetU");
+    add_patch(REPLACE_FUNCTION_FOR_PROCESS(FSCloseFile_wiiStreetU, LIBRARY_COREINIT, FSCloseFile, FP_TARGET_PROCESS_GAME), "FSCloseFile_wiiStreetU");
+
+    return true;
+}
+
+void unpatchWiiStreetU() {
+    for (const auto handle: wiistreetu_ca_patches) {
+        FunctionPatcher_RemoveFunctionPatch(handle);
+    }
+    wiistreetu_ca_patches.clear();
+}

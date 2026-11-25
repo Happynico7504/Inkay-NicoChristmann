@@ -20,6 +20,6 @@
 
 // Shared by both the module (src/main.cpp) and the plugin (plugin/src/main.cpp) so their
 // reported versions can't drift apart - bump this one place for a release.
-#define INKAY_VERSION "v3.0.0-80"
+#define INKAY_VERSION "v3.0.0-81"
 
 #endif //INKAY_INKAY_CONFIG_H

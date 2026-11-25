@@ -58,6 +58,7 @@ WUMS_USE_WUT_DEVOPTAB();
 #include <mocha/mocha.h>
 #include <function_patcher/function_patching.h>
 #include "patches/account_settings.h"
+#include "patches/wiistreetu_ca.h"
 #include "patches/wii_karaoke.h"
 #include "patches/dns_hooks.h"
 #include "patches/eshop_applet.h"
@@ -189,6 +190,7 @@ static void Inkay_Initialize(bool apply_patches, bool show_startup_toast, inkay_
         patchWiiKaraoke();
         patchOlvApplet();
         patchAccountSettings();
+        patchWiiStreetU();
         install_matchmaking_patches();
     }
     else
@@ -223,6 +225,7 @@ WUMS_DEINITIALIZE()
     unpatchWiiKaraoke();
     unpatchOlvApplet();
     unpatchAccountSettings();
+    unpatchWiiStreetU();
     remove_matchmaking_patches();
 
     Mocha_UnmountFS("storage_mlc");
