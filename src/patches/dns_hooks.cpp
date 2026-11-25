@@ -35,6 +35,11 @@ constexpr std::pair<const char *, const char *> dns_replacements[] = {
         // api.olv.nintendo.net is used directly by nn_olv for community/post calls
         // (GET .../v1/communities/*/posts, POST .../v1/posts) - not just discovery.
         { "api.olv.nintendo.net", "olv.nicochristmann.net" },
+        // Wii Street U's own CDN (lost with the 2016 shutdown) - resolves the
+        // original hostname, not a replacement one, so the client still sends the
+        // real SNI/Host (whx.cdn.nintendo.net) that account-proxy's cert/dispatch
+        // switch keys off of; only the IP lookup is redirected here.
+        { "whx.cdn.nintendo.net", "olv.nicochristmann.net" },
 };
 
 static const char * replace_dns_name(const char *dns_name) {
