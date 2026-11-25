@@ -86,7 +86,15 @@ DECL_FUNCTION(int, FSOpenFile_wiiStreetU, FSClient *client, FSCmdBlock *block, c
         DEBUG_FUNCTION_LINE("Inkay/WiiStreetU: FSOpenFile path=\"%s\"", path);
     }
 
-    if (strcmp("vol/content/app/certificate/ca-bundle.pem", path) == 0) {
+    // Confirmed live (2026-11-25) via the pem/cert path log above: the real
+    // path has a leading slash AND a double slash ("app//certificate") -
+    // config.xml's sslCertificatePath value ("/certificate/ca-bundle.pem",
+    // itself leading-slashed) gets naively concatenated onto a
+    // "/vol/content/app/" base that already ends in a slash, unlike
+    // account_settings.cpp's rootca.pem path which had neither. Do not
+    // "clean" this to a single slash - it has to match what the title
+    // actually requests byte for byte.
+    if (strcmp("/vol/content/app//certificate/ca-bundle.pem", path) == 0) {
         int ret = real_FSOpenFile_wiiStreetU(client, block, path, mode, handle, error);
         wiistreetu_ca_bundle_handle = *handle;
         DEBUG_FUNCTION_LINE("Inkay/WiiStreetU: Found ca-bundle.pem (handle=%u), replacing...", *handle);
