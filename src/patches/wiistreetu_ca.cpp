@@ -21,10 +21,12 @@
     (-> wiistreetu_ca_bundle_pem[] below) is the original bundle's Nintendo
     Class 2 CA G3 cert plus our own CA, with the obsolete Equifax/Entrust
     roots dropped to make room, padded with a comment line to the EXACT byte
-    length of the original 4562-byte file. That padding matters: nothing here
-    patches FSGetStatFile, so the game allocates its read buffer from the
-    REAL file's stat size - a larger replacement would just get truncated by
-    FSReadFile_wiiStreetU's own `size * count` bound below. */
+    length of the original 4562-byte file. That padding matters twice over:
+    nothing here patches FSGetStatFile, so the game's own read buffer is
+    sized from the REAL file's stat size; and FSReadFile_wiiStreetU below
+    substitutes bytes by mirroring the real file's position/EOF/return-value
+    behavior rather than tracking its own offset, which only lines up
+    correctly because both files are exactly the same length. */
 
 #include "config.h"
 #include "utils/logger.h"
@@ -34,6 +36,7 @@
 #include <coreinit/filesystem.h>
 #include <coreinit/title.h>
 
+#include <cstring>
 #include <vector>
 #include <optional>
 
@@ -79,13 +82,31 @@ DECL_FUNCTION(FSStatus, FSReadFile_wiiStreetU, FSClient *client, FSCmdBlock *blo
     if (!isWiiStreetUTitle()) {
         return real_FSReadFile_wiiStreetU(client, block, buffer, size, count, handle, unk1, flags);
     }
-    if (size != 1) {
-        DEBUG_FUNCTION_LINE("Inkay: Wii Street U ca-bundle.pem replacement failed!");
-    }
 
     if (wiistreetu_ca_bundle_handle && *wiistreetu_ca_bundle_handle == handle) {
-        strlcpy((char *) buffer, (const char *) wiistreetu_ca_bundle_pem, size * count);
-        return (FSStatus) count;
+        // Confirmed live (2026-11-25): this file is read across multiple
+        // FSReadFile calls with size != 1, not the single whole-file call
+        // account_settings.cpp's rootca.pem swap assumed - a one-shot
+        // strlcpy() on every call just re-served the same bytes from offset
+        // 0 each time instead of advancing. Since both the real file and our
+        // replacement are exactly wiistreetu_ca_bundle_pem_size (4562) bytes
+        // (see data/wiistreetu_ca_bundle.pem's padding), letting the REAL
+        // read drive position/EOF/return-value semantics and just
+        // substituting the bytes it would have returned keeps us correct
+        // regardless of how the caller chunks its reads.
+        uint32_t posBefore = 0;
+        FSGetPosFile(client, block, handle, &posBefore, FS_ERROR_FLAG_ALL);
+
+        FSStatus ret = real_FSReadFile_wiiStreetU(client, block, buffer, size, count, handle, unk1, flags);
+        if (ret > 0) {
+            size_t bytesRead = (size_t) ret * size;
+            size_t avail = (posBefore < wiistreetu_ca_bundle_pem_size) ? (wiistreetu_ca_bundle_pem_size - posBefore) : 0;
+            size_t toCopy = bytesRead < avail ? bytesRead : avail;
+            if (toCopy > 0) {
+                memcpy(buffer, wiistreetu_ca_bundle_pem + posBefore, toCopy);
+            }
+        }
+        return ret;
     }
     return real_FSReadFile_wiiStreetU(client, block, buffer, size, count, handle, unk1, flags);
 }
