@@ -63,15 +63,33 @@ DECL_FUNCTION(int, FSOpenFile_wiiStreetU, FSClient *client, FSCmdBlock *block, c
         return real_FSOpenFile_wiiStreetU(client, block, path, mode, handle, error);
     }
 
+    // One-shot confirmation that title-ID detection itself is engaging at
+    // all - cheap sanity check before trusting any path-matching logic below.
+    static bool loggedTitleMatch = false;
+    if (!loggedTitleMatch) {
+        loggedTitleMatch = true;
+        DEBUG_FUNCTION_LINE("Inkay/WiiStreetU: title match (titleId=%016llX), CA patch engaging", OSGetTitleID());
+    }
+
     if (!Config::connect_to_network) {
-        DEBUG_FUNCTION_LINE_VERBOSE("Inkay: Wii Street U CA patches skipped.");
+        DEBUG_FUNCTION_LINE("Inkay: Wii Street U CA patches skipped (connect_to_network off).");
         return real_FSOpenFile_wiiStreetU(client, block, path, mode, handle, error);
+    }
+
+    // Always-on (not VERBOSE, which compiles out entirely in release builds -
+    // confirmed via utils/logger.h that DEBUG_FUNCTION_LINE_VERBOSE is a
+    // total no-op unless DEBUG is defined, which the release CI build never
+    // sets) so we can actually see this on real hardware. Logs every path
+    // containing "pem"/"cert" rather than every FSOpenFile call, which would
+    // flood the log with every image/HTML asset this title opens.
+    if (strstr(path, "pem") != nullptr || strstr(path, "cert") != nullptr) {
+        DEBUG_FUNCTION_LINE("Inkay/WiiStreetU: FSOpenFile path=\"%s\"", path);
     }
 
     if (strcmp("vol/content/app/certificate/ca-bundle.pem", path) == 0) {
         int ret = real_FSOpenFile_wiiStreetU(client, block, path, mode, handle, error);
         wiistreetu_ca_bundle_handle = *handle;
-        DEBUG_FUNCTION_LINE_VERBOSE("Inkay: Found Wii Street U ca-bundle.pem, replacing...");
+        DEBUG_FUNCTION_LINE("Inkay/WiiStreetU: Found ca-bundle.pem (handle=%u), replacing...", *handle);
         return ret;
     }
     return real_FSOpenFile_wiiStreetU(client, block, path, mode, handle, error);
@@ -98,14 +116,17 @@ DECL_FUNCTION(FSStatus, FSReadFile_wiiStreetU, FSClient *client, FSCmdBlock *blo
         FSGetPosFile(client, block, handle, &posBefore, FS_ERROR_FLAG_ALL);
 
         FSStatus ret = real_FSReadFile_wiiStreetU(client, block, buffer, size, count, handle, unk1, flags);
+        size_t toCopy = 0;
         if (ret > 0) {
             size_t bytesRead = (size_t) ret * size;
             size_t avail = (posBefore < wiistreetu_ca_bundle_pem_size) ? (wiistreetu_ca_bundle_pem_size - posBefore) : 0;
-            size_t toCopy = bytesRead < avail ? bytesRead : avail;
+            toCopy = bytesRead < avail ? bytesRead : avail;
             if (toCopy > 0) {
                 memcpy(buffer, wiistreetu_ca_bundle_pem + posBefore, toCopy);
             }
         }
+        DEBUG_FUNCTION_LINE("Inkay/WiiStreetU: FSReadFile ca-bundle size=%u count=%u posBefore=%u ret=%d copied=%u",
+            size, count, posBefore, ret, (uint32_t) toCopy);
         return ret;
     }
     return real_FSReadFile_wiiStreetU(client, block, buffer, size, count, handle, unk1, flags);
