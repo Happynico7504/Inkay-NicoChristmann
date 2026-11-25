@@ -29,7 +29,9 @@
 
     Same technique as wiistreetu_ca.cpp: swap the file's bytes via FSOpenFile/
     FSReadFile/FSReadFileWithPos, same 3 regional title IDs. The replacement
-    (data/wiistreetu_tlb_nwf.js) is byte-identical to the original except the
+    (data/wiistreetu_tlb_nwf.bin - named .bin, not .js, since the devkitPro
+    Makefile only has a bin2o rule for .bin/.pem, not .js) is byte-identical
+    to the original except the
     iframe's left/top are pushed to -9999px instead of 1000px/0 - minimal,
     reversible, and padded (by shortening one harmless console.log call) to
     the EXACT original length, same reason as the cert bundle: no
@@ -48,7 +50,7 @@
 #include <vector>
 #include <optional>
 
-#include "wiistreetu_tlb_nwf_js.h" // generated at buildtime from data/wiistreetu_tlb_nwf.js
+#include "wiistreetu_tlb_nwf_bin.h" // generated at buildtime from data/wiistreetu_tlb_nwf.js
 
 #define WII_STREET_U_TID_J 0x000500001012D300
 #define WII_STREET_U_TID_E 0x0005000010132000
@@ -87,10 +89,10 @@ DECL_FUNCTION(int, FSOpenFile_wiiStreetUTlb, FSClient *client, FSCmdBlock *block
 static size_t substituteTlbBytes(uint32_t posBefore, FSStatus ret, uint32_t size, uint8_t *buffer) {
     if (ret <= 0) return 0;
     size_t bytesRead = (size_t) ret * size;
-    size_t avail = (posBefore < wiistreetu_tlb_nwf_js_size) ? (wiistreetu_tlb_nwf_js_size - posBefore) : 0;
+    size_t avail = (posBefore < wiistreetu_tlb_nwf_bin_size) ? (wiistreetu_tlb_nwf_bin_size - posBefore) : 0;
     size_t toCopy = bytesRead < avail ? bytesRead : avail;
     if (toCopy > 0) {
-        memcpy(buffer, wiistreetu_tlb_nwf_js + posBefore, toCopy);
+        memcpy(buffer, wiistreetu_tlb_nwf_bin + posBefore, toCopy);
     }
     return toCopy;
 }
