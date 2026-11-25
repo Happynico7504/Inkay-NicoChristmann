@@ -103,6 +103,27 @@ DECL_FUNCTION(int, FSOpenFile_wiiStreetU, FSClient *client, FSCmdBlock *block, c
     return real_FSOpenFile_wiiStreetU(client, block, path, mode, handle, error);
 }
 
+// Shared by both FSReadFile_wiiStreetU and FSReadFileWithPos_wiiStreetU.
+// Confirmed live (2026-11-25): this file is read across multiple chunked
+// calls with size != 1, not the single whole-file call account_settings.cpp's
+// rootca.pem swap assumed - a one-shot strlcpy() on every call just
+// re-served the same bytes from offset 0 each time instead of advancing.
+// Since both the real file and our replacement are exactly
+// wiistreetu_ca_bundle_pem_size (4562) bytes (see
+// data/wiistreetu_ca_bundle.pem's padding), substituting bytes at whatever
+// position the real read reports/consumes keeps us correct regardless of
+// how the caller chunks its reads.
+static size_t substituteCaBundleBytes(uint32_t posBefore, FSStatus ret, uint32_t size, uint8_t *buffer) {
+    if (ret <= 0) return 0;
+    size_t bytesRead = (size_t) ret * size;
+    size_t avail = (posBefore < wiistreetu_ca_bundle_pem_size) ? (wiistreetu_ca_bundle_pem_size - posBefore) : 0;
+    size_t toCopy = bytesRead < avail ? bytesRead : avail;
+    if (toCopy > 0) {
+        memcpy(buffer, wiistreetu_ca_bundle_pem + posBefore, toCopy);
+    }
+    return toCopy;
+}
+
 DECL_FUNCTION(FSStatus, FSReadFile_wiiStreetU, FSClient *client, FSCmdBlock *block, uint8_t *buffer, uint32_t size, uint32_t count,
               FSFileHandle handle, uint32_t unk1, uint32_t flags) {
     if (!isWiiStreetUTitle()) {
@@ -110,34 +131,37 @@ DECL_FUNCTION(FSStatus, FSReadFile_wiiStreetU, FSClient *client, FSCmdBlock *blo
     }
 
     if (wiistreetu_ca_bundle_handle && *wiistreetu_ca_bundle_handle == handle) {
-        // Confirmed live (2026-11-25): this file is read across multiple
-        // FSReadFile calls with size != 1, not the single whole-file call
-        // account_settings.cpp's rootca.pem swap assumed - a one-shot
-        // strlcpy() on every call just re-served the same bytes from offset
-        // 0 each time instead of advancing. Since both the real file and our
-        // replacement are exactly wiistreetu_ca_bundle_pem_size (4562) bytes
-        // (see data/wiistreetu_ca_bundle.pem's padding), letting the REAL
-        // read drive position/EOF/return-value semantics and just
-        // substituting the bytes it would have returned keeps us correct
-        // regardless of how the caller chunks its reads.
         uint32_t posBefore = 0;
         FSGetPosFile(client, block, handle, &posBefore, FS_ERROR_FLAG_ALL);
 
         FSStatus ret = real_FSReadFile_wiiStreetU(client, block, buffer, size, count, handle, unk1, flags);
-        size_t toCopy = 0;
-        if (ret > 0) {
-            size_t bytesRead = (size_t) ret * size;
-            size_t avail = (posBefore < wiistreetu_ca_bundle_pem_size) ? (wiistreetu_ca_bundle_pem_size - posBefore) : 0;
-            toCopy = bytesRead < avail ? bytesRead : avail;
-            if (toCopy > 0) {
-                memcpy(buffer, wiistreetu_ca_bundle_pem + posBefore, toCopy);
-            }
-        }
+        size_t toCopy = substituteCaBundleBytes(posBefore, ret, size, buffer);
         DEBUG_FUNCTION_LINE("Inkay/WiiStreetU: FSReadFile ca-bundle size=%u count=%u posBefore=%u ret=%d copied=%u",
             size, count, posBefore, ret, (uint32_t) toCopy);
         return ret;
     }
     return real_FSReadFile_wiiStreetU(client, block, buffer, size, count, handle, unk1, flags);
+}
+
+// Some callers (likely stdio-style fread()/fseek() usage inside
+// libcurl_rpl/libssl_rpl) read with an explicit position instead of the
+// implicit-sequential FSReadFile above - no FSReadFile log ever appeared on
+// real hardware despite FSOpenFile matching, confirming this is the one
+// actually used for ca-bundle.pem here.
+DECL_FUNCTION(FSStatus, FSReadFileWithPos_wiiStreetU, FSClient *client, FSCmdBlock *block, uint8_t *buffer, uint32_t size, uint32_t count,
+              uint32_t pos, FSFileHandle handle, uint32_t unk1, FSErrorFlag errorMask) {
+    if (!isWiiStreetUTitle()) {
+        return real_FSReadFileWithPos_wiiStreetU(client, block, buffer, size, count, pos, handle, unk1, errorMask);
+    }
+
+    if (wiistreetu_ca_bundle_handle && *wiistreetu_ca_bundle_handle == handle) {
+        FSStatus ret = real_FSReadFileWithPos_wiiStreetU(client, block, buffer, size, count, pos, handle, unk1, errorMask);
+        size_t toCopy = substituteCaBundleBytes(pos, ret, size, buffer);
+        DEBUG_FUNCTION_LINE("Inkay/WiiStreetU: FSReadFileWithPos ca-bundle size=%u count=%u pos=%u ret=%d copied=%u",
+            size, count, pos, ret, (uint32_t) toCopy);
+        return ret;
+    }
+    return real_FSReadFileWithPos_wiiStreetU(client, block, buffer, size, count, pos, handle, unk1, errorMask);
 }
 
 DECL_FUNCTION(FSStatus, FSCloseFile_wiiStreetU, FSClient *client, FSCmdBlock *block, FSFileHandle handle, FSErrorFlag errorMask) {
@@ -151,7 +175,7 @@ DECL_FUNCTION(FSStatus, FSCloseFile_wiiStreetU, FSClient *client, FSCmdBlock *bl
 }
 
 bool patchWiiStreetU() {
-    wiistreetu_ca_patches.reserve(3);
+    wiistreetu_ca_patches.reserve(4);
 
     auto add_patch = [](function_replacement_data_t repl, const char *name) {
         PatchedFunctionHandle handle = 0;
@@ -163,6 +187,7 @@ bool patchWiiStreetU() {
 
     add_patch(REPLACE_FUNCTION_FOR_PROCESS(FSOpenFile_wiiStreetU, LIBRARY_COREINIT, FSOpenFile, FP_TARGET_PROCESS_GAME), "FSOpenFile_wiiStreetU");
     add_patch(REPLACE_FUNCTION_FOR_PROCESS(FSReadFile_wiiStreetU, LIBRARY_COREINIT, FSReadFile, FP_TARGET_PROCESS_GAME), "FSReadFile_wiiStreetU");
+    add_patch(REPLACE_FUNCTION_FOR_PROCESS(FSReadFileWithPos_wiiStreetU, LIBRARY_COREINIT, FSReadFileWithPos, FP_TARGET_PROCESS_GAME), "FSReadFileWithPos_wiiStreetU");
     add_patch(REPLACE_FUNCTION_FOR_PROCESS(FSCloseFile_wiiStreetU, LIBRARY_COREINIT, FSCloseFile, FP_TARGET_PROCESS_GAME), "FSCloseFile_wiiStreetU");
 
     return true;
